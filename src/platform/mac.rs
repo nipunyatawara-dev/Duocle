@@ -10,19 +10,19 @@ use block2::RcBlock;
 use objc2::{
     AnyThread, MainThreadMarker, MainThreadOnly, exception,
     rc::Retained,
-    runtime::{AnyObject, NSObject, NSObjectProtocol},
+    runtime::{AnyObject, Bool, NSObject, NSObjectProtocol},
 };
 use objc2_app_kit::{
-    NSBackingStoreType, NSColor, NSEvent, NSEventModifierFlags as Flags, NSImage,
-    NSRunningApplication, NSScreen, NSTitlebarSeparatorStyle, NSView, NSVisualEffectBlendingMode,
-    NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
-    NSWindowAnimationBehavior, NSWindowCollectionBehavior as Collection, NSWindowStyleMask,
-    NSWorkspace,
+    NSBackingStoreType, NSColor, NSEvent, NSEventModifierFlags as Flags, NSGraphicsContext,
+    NSImage, NSRunningApplication, NSScreen, NSTitlebarSeparatorStyle, NSView,
+    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+    NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior as Collection,
+    NSWindowStyleMask, NSWorkspace,
 };
 use objc2_core_foundation::{CFData, CFRetained, CGRect};
 use objc2_core_graphics::{
-    CGBitmapInfo, CGColor, CGColorRenderingIntent, CGColorSpace, CGDataProvider, CGImage,
-    CGImageAlphaInfo, CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess,
+    CGBitmapInfo, CGColor, CGColorRenderingIntent, CGColorSpace, CGContext, CGDataProvider,
+    CGImage, CGImageAlphaInfo, CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess,
     CGWindowListCopyWindowInfo, CGWindowListOption,
 };
 use objc2_foundation::{
@@ -54,6 +54,15 @@ fn cg_rect(rect: Rect) -> CGRect {
         NSPoint::new(f64::from(rect.x), f64::from(rect.y)),
         NSSize::new(f64::from(rect.w), f64::from(rect.h)),
     )
+}
+
+fn overlay_rect(rect: Rect, bounds: Rect) -> CGRect {
+    cg_rect(Rect::new(
+        rect.x - bounds.x,
+        bounds.bottom() - rect.bottom(),
+        rect.w,
+        rect.h,
+    ))
 }
 
 fn desktop_rect(frame: NSRect, origin: f64) -> Rect {
@@ -538,14 +547,6 @@ impl Overlay {
             self.bounds = Some(bounds);
         }
 
-        let local = |rect: Rect| {
-            cg_rect(Rect::new(
-                rect.x - bounds.x,
-                bounds.bottom() - rect.bottom(),
-                rect.w,
-                rect.h,
-            ))
-        };
         if frame.geometry_changed {
             for layer in self
                 .mask_tiles
@@ -561,7 +562,7 @@ impl Overlay {
                     self.texture_mask.addSublayer(&layer);
                     self.mask_tiles.push(layer);
                 }
-                self.mask_tiles[index].setFrame(local(tile.rect));
+                self.mask_tiles[index].setFrame(overlay_rect(tile.rect, bounds));
             }
         }
         for (index, tile) in frame.tiles.iter().enumerate() {
@@ -578,7 +579,7 @@ impl Overlay {
                 || frame.geometry_changed
                 || frame.tiles.iter().any(|tile| tile.is_animating())
             {
-                let mask = make_backdrop_mask(frame)?;
+                let mask = make_backdrop_mask(frame);
                 self.backdrop.setMaskImage(Some(&mask));
             }
             if self.backdrop_radius == 0.0 {
@@ -659,46 +660,36 @@ fn set_backdrop_radius(layer: &CALayer, radius: f32) -> bool {
     })
 }
 
-fn make_backdrop_mask(frame: &OverlayFrame<'_>) -> Result<Retained<NSImage>> {
+fn make_backdrop_mask(frame: &OverlayFrame<'_>) -> Retained<NSImage> {
     let bounds = frame.bounds;
-    let stride = bounds.w as usize * 2;
-    let mut pixels = vec![0; stride * bounds.h as usize];
-    for tile in frame.tiles {
-        let alpha = (tile.opacity(frame.progress) * 255.0).round() as u8;
-        let x = (tile.rect.x - bounds.x) as usize * 2;
-        let y = (tile.rect.y - bounds.y) as usize;
-        for row in y..y + tile.rect.h as usize {
-            let start = row * stride + x;
-            let end = start + tile.rect.w as usize * 2;
-            for pixel in pixels[start..end].as_chunks_mut::<2>().0 {
-                pixel[1] = alpha;
-            }
+    let tiles: Vec<_> = frame
+        .tiles
+        .iter()
+        .map(|tile| {
+            (
+                overlay_rect(tile.rect, bounds),
+                f64::from(tile.opacity(frame.progress)),
+            )
+        })
+        .collect();
+    // AppKit rasterizes these point-space rectangles at the window's backing
+    // scale. A one-pixel-per-point bitmap misaligns the blur on Retina displays.
+    let draw = RcBlock::new(move |_: NSRect| {
+        let Some(context) = NSGraphicsContext::currentContext() else {
+            return Bool::NO;
+        };
+        let cg = context.CGContext();
+        for &(rect, opacity) in &tiles {
+            CGContext::set_gray_fill_color(Some(&cg), 0.0, opacity);
+            CGContext::fill_rect(Some(&cg), rect);
         }
-    }
-    let provider = CGDataProvider::with_cf_data(Some(&CFData::from_bytes(&pixels)))
-        .context("create backdrop mask data provider")?;
-    let space = CGColorSpace::new_device_gray().context("create gray color space")?;
-    let image = unsafe {
-        CGImage::new(
-            bounds.w as usize,
-            bounds.h as usize,
-            8,
-            16,
-            stride,
-            Some(&space),
-            CGBitmapInfo(CGImageAlphaInfo::PremultipliedLast.0),
-            Some(&provider),
-            ptr::null(),
-            false,
-            CGColorRenderingIntent::RenderingIntentDefault,
-        )
-    }
-    .context("create backdrop mask image")?;
-    Ok(NSImage::initWithCGImage_size(
-        NSImage::alloc(),
-        &image,
+        Bool::YES
+    });
+    NSImage::imageWithSize_flipped_drawingHandler(
         NSSize::new(f64::from(bounds.w), f64::from(bounds.h)),
-    ))
+        false,
+        &draw,
+    )
 }
 
 fn make_image(size: Size, pixels: &[u8]) -> Result<CFRetained<CGImage>> {
