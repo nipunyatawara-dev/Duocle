@@ -94,6 +94,8 @@ pub struct Mask {
     /// Nonoverlapping rectangles within the overlay, in desktop coordinates.
     pub clear: Vec<Rect>,
     pub ambient: Vec<Rect>,
+    #[cfg(target_os = "macos")]
+    pub behind: Option<u64>,
 }
 
 impl Mask {
@@ -102,6 +104,8 @@ impl Mask {
             bounds,
             clear: vec![bounds],
             ambient: Vec::new(),
+            #[cfg(target_os = "macos")]
+            behind: None,
         }
     }
 
@@ -425,6 +429,23 @@ pub fn plan(desktop: &Desktop, settings: &Settings) -> Vec<(u64, Mask)> {
                     break;
                 }
             }
+            #[cfg(target_os = "macos")]
+            let behind = primary
+                .filter(|primary| {
+                    primary.focusable
+                        && !settings.dim_chrome
+                        && !settings.uses_capture()
+                        && !settings.app_wide
+                        && active_group.is_empty()
+                        && (settings.cover_stage || display.stage.is_none())
+                        && front_window_can_cover_overlay(
+                            &desktop.windows,
+                            bounds,
+                            primary,
+                            settings,
+                        )
+                })
+                .map(|primary| primary.id);
             let clear_area = clear
                 .iter()
                 .map(|rect| i64::from(rect.w) * i64::from(rect.h))
@@ -435,10 +456,40 @@ pub fn plan(desktop: &Desktop, settings: &Settings) -> Vec<(u64, Mask)> {
                     bounds,
                     clear: coalesce(clear),
                     ambient,
+                    #[cfg(target_os = "macos")]
+                    behind,
                 },
             ))
         })
         .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn front_window_can_cover_overlay(
+    windows: &[Window],
+    bounds: Rect,
+    primary: &Window,
+    settings: &Settings,
+) -> bool {
+    let mut found_primary = false;
+    for window in windows
+        .iter()
+        .filter(|window| window.bounds.intersection(bounds).is_some())
+    {
+        if window.id == primary.id {
+            found_primary = true;
+            continue;
+        }
+        // Above the anchor, only the focused app's floating windows should
+        // stay sharp. Ignored windows below it need their own cutouts.
+        if settings.is_ignored(&window.app)
+            || !(found_primary && window.focusable
+                || !window.focusable && window.app == primary.app)
+        {
+            return false;
+        }
+    }
+    found_primary
 }
 
 fn uncovered(rect: Rect, covered: &[Rect]) -> Vec<Rect> {
@@ -514,6 +565,8 @@ mod tests {
             bounds,
             clear: vec![Rect::new(x, 20, 30, 40)],
             ambient: Vec::new(),
+            #[cfg(target_os = "macos")]
+            behind: None,
         };
         let start = Instant::now();
         let duration = Duration::from_millis(240);
@@ -616,6 +669,30 @@ mod tests {
 
         settings.dim_chrome = true;
         assert_eq!(plan(&desktop, &settings)[0].1.bounds, display.bounds);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn backdrop_can_stay_behind_a_moving_front_window() {
+        let mut desktop = desktop();
+        let mut settings = Settings::default();
+        let first = plan(&desktop, &settings);
+        assert_eq!(first[0].1.behind, Some(1));
+
+        desktop.windows[0].bounds.x += 12;
+        let moved = plan(&desktop, &settings);
+        assert_ne!(moved[0].1.clear, first[0].1.clear);
+        assert_eq!(moved[0].1.behind, Some(1));
+
+        settings.ignored.push(AppInfo {
+            id: "two".into(),
+            name: "Two".into(),
+        });
+        assert_eq!(plan(&desktop, &settings)[0].1.behind, None);
+        settings.ignored.clear();
+
+        desktop.windows.swap(0, 1);
+        assert_eq!(plan(&desktop, &settings)[0].1.behind, None);
     }
 
     #[test]

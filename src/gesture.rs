@@ -12,6 +12,8 @@ pub struct Pointer {
     pub alt: bool,
     pub super_key: bool,
     pub down: bool,
+    #[cfg(target_os = "macos")]
+    pub primary_down: bool,
 }
 
 impl Pointer {

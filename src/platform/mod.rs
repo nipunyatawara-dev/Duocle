@@ -39,5 +39,7 @@ pub struct OverlayFrame<'a> {
     #[cfg(target_os = "macos")]
     pub native_blur_opacity: f32,
     #[cfg(target_os = "macos")]
+    pub behind: Option<u64>,
+    #[cfg(target_os = "macos")]
     pub chrome: bool,
 }

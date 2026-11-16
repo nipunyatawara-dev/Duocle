@@ -157,6 +157,7 @@ mod tests {
             bounds: Rect::new(0, 0, 16, 16),
             clear: vec![],
             ambient: vec![Rect::new(0, 0, 8, 8)],
+            behind: None,
         };
         let settings = Settings {
             mode: Mode::Ambient,
@@ -181,6 +182,8 @@ mod tests {
             bounds: Rect::new(0, 0, 1, 1),
             clear: vec![],
             ambient: vec![],
+            #[cfg(target_os = "macos")]
+            behind: None,
         };
         let size = Size::for_mask(&mask);
         let mut settings = Settings {

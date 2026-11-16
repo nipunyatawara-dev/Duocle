@@ -125,6 +125,8 @@ struct App {
     last_pointer: Instant,
     pointer: Pointer,
     paused: bool,
+    #[cfg(target_os = "macos")]
+    wallpaper_selected: bool,
     exit: bool,
     ui_state: String,
     notice: Option<String>,
@@ -224,6 +226,8 @@ pub fn run() -> Result<()> {
         last_pointer: now,
         pointer: Pointer::default(),
         paused: false,
+        #[cfg(target_os = "macos")]
+        wallpaper_selected: false,
         exit: false,
         ui_state: String::new(),
         notice,
@@ -731,7 +735,7 @@ impl App {
             "apps": self.desktop.apps,
             "foreground": self.desktop.foreground_app,
             "foreground_name": self.foreground_name(),
-            "paused": self.paused || self.desktop.overview,
+            "paused": self.focus_paused() || self.desktop.overview,
             "focused_window": self.desktop.foreground.and_then(|id| {
                 self.desktop.windows.iter().find(|window| window.id == id)
             }).map(|window| {
@@ -744,6 +748,14 @@ impl App {
             "platform": std::env::consts::OS,
             "notice": self.notice,
         })
+    }
+
+    fn focus_paused(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        if self.wallpaper_selected {
+            return true;
+        }
+        self.paused
     }
 
     fn publish(&mut self) {
@@ -799,6 +811,13 @@ impl App {
             };
             self.next_snapshot = now + Duration::from_millis(scan_interval);
             layout_changed = self.snapshot_desktop();
+            #[cfg(target_os = "macos")]
+            if self.desktop.foreground != previous_foreground
+                && self.desktop.foreground.is_some()
+                && self.desktop.foreground_app.as_deref() != Some("com.apple.finder")
+            {
+                self.wallpaper_selected = false;
+            }
             self.desktop.apps.sort_by_key(|app| app.name.to_lowercase());
             self.desktop.apps.dedup_by(|a, b| a.id == b.id);
             #[cfg(target_os = "windows")]
@@ -820,7 +839,16 @@ impl App {
         }
         if now.duration_since(self.last_pointer) >= Duration::from_millis(15) {
             self.last_pointer = now;
-            self.pointer = self.system.pointer();
+            let pointer = self.system.pointer();
+            #[cfg(target_os = "macos")]
+            if pointer.primary_down
+                && !self.pointer.primary_down
+                && !self.desktop.overview
+                && let Some(on_wallpaper) = platform::clicked_wallpaper(&self.desktop, pointer)
+            {
+                self.wallpaper_selected = on_wallpaper;
+            }
+            self.pointer = pointer;
             let gesture = self.gestures.update(
                 self.millis(),
                 self.pointer,
@@ -835,7 +863,7 @@ impl App {
             }
         }
 
-        let desired = self.settings.enabled && !self.paused;
+        let desired = self.settings.enabled && !self.focus_paused();
         let changed = std::mem::replace(&mut self.wants_focus, desired) != desired;
         let animate_geometry = !layout_changed
             || previous_foreground != self.desktop.foreground
@@ -1015,7 +1043,19 @@ impl App {
                 || screen.painted_revision != self.revision
                 || screen.fresh_image
                 || (self.settings.reveal == Reveal::Cursor && changed_opacity);
-            if !geometry_changed && !repaint && !progress_changed && !changed_opacity {
+            #[cfg(target_os = "macos")]
+            let ordering_pending = screen
+                .overlay
+                .as_ref()
+                .is_some_and(Overlay::ordering_pending);
+            #[cfg(not(target_os = "macos"))]
+            let ordering_pending = false;
+            if !geometry_changed
+                && !repaint
+                && !progress_changed
+                && !changed_opacity
+                && !ordering_pending
+            {
                 continue;
             }
             let reveal = cursor_reveal.then(|| {
@@ -1096,6 +1136,12 @@ impl App {
                 native_blur_radius,
                 #[cfg(target_os = "macos")]
                 native_blur_opacity: if cursor_reveal { opacity } else { 1.0 },
+                #[cfg(target_os = "macos")]
+                behind: if progress == 1.0 && !cursor_reveal {
+                    mask.behind
+                } else {
+                    None
+                },
                 #[cfg(target_os = "macos")]
                 chrome: self.settings.dim_chrome,
             };

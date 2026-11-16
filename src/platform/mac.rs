@@ -17,7 +17,7 @@ use objc2_app_kit::{
     NSImage, NSRunningApplication, NSScreen, NSTitlebarSeparatorStyle, NSView,
     NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
     NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior as Collection,
-    NSWindowStyleMask, NSWorkspace,
+    NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_core_foundation::{CFData, CFRetained, CGRect};
 use objc2_core_graphics::{
@@ -34,7 +34,13 @@ use objc2_screen_capture_kit::{
     SCContentFilter, SCScreenshotManager, SCShareableContent, SCStreamConfiguration,
 };
 use objc2_service_management::{SMAppService, SMAppServiceStatus};
-use std::{collections::HashMap, panic::AssertUnwindSafe, ptr, sync::mpsc, time::Duration};
+use std::{
+    collections::HashMap,
+    panic::AssertUnwindSafe,
+    ptr,
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 use tao::{platform::macos::WindowExtMacOS, window::Window as TaoWindow};
 
 #[derive(Default)]
@@ -63,6 +69,27 @@ fn overlay_rect(rect: Rect, bounds: Rect) -> CGRect {
         rect.w,
         rect.h,
     ))
+}
+
+type WindowInfo = NSDictionary<NSString, AnyObject>;
+
+fn window_info(
+    options: CGWindowListOption,
+    relative: u32,
+) -> Option<Retained<NSArray<WindowInfo>>> {
+    let list = CGWindowListCopyWindowInfo(options, relative)?;
+    // WindowServer returns a toll-free bridged array of CF dictionaries.
+    let ptr = CFRetained::as_ptr(&list)
+        .as_ptr()
+        .cast::<NSArray<WindowInfo>>();
+    unsafe { Retained::retain(ptr) }
+}
+
+fn on_screen_windows() -> Option<Retained<NSArray<WindowInfo>>> {
+    window_info(
+        CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements,
+        0,
+    )
 }
 
 fn desktop_rect(frame: NSRect, origin: f64) -> Rect {
@@ -164,17 +191,7 @@ impl System {
         let corner_radius = if version.majorVersion >= 26 { 21 } else { 11 };
         let mut windows = Vec::new();
         let mut overview = false;
-        if let Some(list) = CGWindowListCopyWindowInfo(
-            CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements,
-            0,
-        ) {
-            // The CoreGraphics window-list contract is an array of CF dictionaries,
-            // toll-free bridged to their Foundation counterparts.
-            let list = unsafe {
-                &*(CFRetained::as_ptr(&list)
-                    .as_ptr()
-                    .cast::<NSArray<NSDictionary<NSString, AnyObject>>>())
-            };
+        if let Some(list) = on_screen_windows() {
             let key = |name| NSString::from_str(name);
             let owner_key = key("kCGWindowOwnerPID");
             let layer_key = key("kCGWindowLayer");
@@ -182,7 +199,7 @@ impl System {
             let number_key = key("kCGWindowNumber");
             let bounds_key = key("kCGWindowBounds");
             let rect_keys = [key("X"), key("Y"), key("Width"), key("Height")];
-            for window in list {
+            for window in &list {
                 let number = |key: &NSString| window.objectForKey(key)?.downcast::<NSNumber>().ok();
                 let Some(pid) = number(&owner_key).map(|value| value.intValue()) else {
                     continue;
@@ -275,6 +292,7 @@ impl System {
         let mtm = MainThreadMarker::new().expect("pointer polling must run on the main thread");
         let flags = NSEvent::modifierFlags_class();
         let point = NSEvent::mouseLocation();
+        let buttons = NSEvent::pressedMouseButtons();
         Pointer {
             x: point.x as i32,
             y: (screen_origin(mtm) - point.y) as i32,
@@ -282,9 +300,41 @@ impl System {
             control: flags.contains(Flags::Control),
             alt: flags.contains(Flags::Option),
             super_key: flags.contains(Flags::Command),
-            down: NSEvent::pressedMouseButtons() != 0,
+            down: buttons != 0,
+            primary_down: buttons & 1 != 0,
         }
     }
+}
+
+pub fn clicked_wallpaper(desktop: &Desktop, pointer: Pointer) -> Option<bool> {
+    let display = desktop
+        .displays
+        .iter()
+        .find(|display| display.work.contains(pointer.x, pointer.y))?;
+    let mtm = MainThreadMarker::new()?;
+    let point = NSPoint::new(pointer.x.into(), screen_origin(mtm) - f64::from(pointer.y));
+    // AppKit's hit test skips the click-through Duocle overlay.
+    let id = NSWindow::windowNumberAtPoint_belowWindowWithWindowNumber(point, 0, mtm);
+    if desktop.windows.iter().any(|window| window.id == id as u64) {
+        return Some(false);
+    }
+    if display
+        .stage
+        .is_some_and(|stage| stage.contains(pointer.x, pointer.y))
+    {
+        return None;
+    }
+    if id == 0 {
+        return Some(true);
+    }
+    let windows = window_info(CGWindowListOption::OptionIncludingWindow, id as u32)?;
+    let window = windows.firstObject()?;
+    let layer = window
+        .objectForKey(&NSString::from_str("kCGWindowLayer"))?
+        .downcast::<NSNumber>()
+        .ok()?
+        .intValue();
+    (layer <= 8).then_some(layer < 0)
 }
 
 pub fn settings_window_id(window: &TaoWindow) -> u64 {
@@ -462,7 +512,9 @@ pub struct Overlay {
     mask_tiles: Vec<Retained<CALayer>>,
     bounds: Option<Rect>,
     backdrop_radius: f32,
-    level: isize,
+    requested_window: Option<u64>,
+    ordering_deadline: Option<Instant>,
+    behind_window: bool,
     visible: bool,
 }
 
@@ -519,33 +571,67 @@ impl Overlay {
             mask_tiles: Vec::new(),
             bounds: None,
             backdrop_radius: 0.0,
-            level: -1,
+            requested_window: None,
+            ordering_deadline: None,
+            behind_window: false,
             visible: false,
         })
     }
 
     pub fn present(&mut self, frame: OverlayFrame<'_>) -> Result<()> {
-        let level = if frame.chrome { 28 } else { 7 };
-        if self.level != level {
-            self.window.setLevel(level);
-            self.level = level;
-        }
-
         CATransaction::begin();
         CATransaction::setDisableActions(true);
-        let result = self.update_layers(&frame);
+        let resized = self.position_window(frame.bounds);
+        let was_behind = self.behind_window;
+        let reorder = !self.visible || self.requested_window != frame.behind;
+        if reorder {
+            self.requested_window = frame.behind;
+            self.behind_window = false;
+            self.ordering_deadline = frame.behind.map(|anchor| {
+                self.window.setAlphaValue(0.01);
+                self.window.setLevel(0);
+                self.window
+                    .orderWindow_relativeTo(NSWindowOrderingMode::Below, anchor as isize);
+                Instant::now() + Duration::from_millis(200)
+            });
+        } else if let (Some(anchor), Some(deadline)) = (frame.behind, self.ordering_deadline) {
+            // WindowServer may omit newly ordered windows from the current
+            // list until AppKit returns to the run loop.
+            self.behind_window = ordered_behind(&self.window, anchor);
+            if self.behind_window || Instant::now() >= deadline {
+                self.ordering_deadline = None;
+            }
+        }
+        let waiting = self.ordering_pending();
+        let level = if self.behind_window || waiting {
+            0
+        } else if frame.chrome {
+            28
+        } else {
+            7
+        };
+        let level_changed = self.window.level() != level;
+        if level_changed {
+            self.window.setLevel(level);
+        }
+        let result = self.update_layers(&frame, resized, was_behind != self.behind_window);
         CATransaction::commit();
         result?;
-        self.window.setAlphaValue(f64::from(frame.opacity));
-        if !self.visible {
-            self.window.orderFrontRegardless();
-            self.visible = true;
+        if !waiting {
+            self.window.setAlphaValue(f64::from(frame.opacity));
+            if !self.behind_window && (reorder || level_changed) {
+                self.window.orderFrontRegardless();
+            }
         }
+        self.visible = true;
         Ok(())
     }
 
-    fn update_layers(&mut self, frame: &OverlayFrame<'_>) -> Result<()> {
-        let bounds = frame.bounds;
+    pub fn ordering_pending(&self) -> bool {
+        self.ordering_deadline.is_some()
+    }
+
+    fn position_window(&mut self, bounds: Rect) -> bool {
         let resized = self.bounds != Some(bounds);
         if resized {
             let mtm = MainThreadMarker::new().unwrap();
@@ -563,8 +649,26 @@ impl Overlay {
             self.texture_mask.setFrame(local);
             self.bounds = Some(bounds);
         }
+        resized
+    }
 
-        if frame.geometry_changed {
+    fn update_layers(
+        &mut self,
+        frame: &OverlayFrame<'_>,
+        resized: bool,
+        placement_changed: bool,
+    ) -> Result<()> {
+        if placement_changed {
+            unsafe {
+                self.texture
+                    .setMask((!self.behind_window).then_some(&self.texture_mask));
+            }
+            if self.behind_window {
+                self.backdrop.setMaskImage(None);
+            }
+        }
+        let rebuild_mask = !self.behind_window && (frame.geometry_changed || placement_changed);
+        if rebuild_mask {
             for layer in self
                 .mask_tiles
                 .drain(frame.tiles.len().min(self.mask_tiles.len())..)
@@ -579,22 +683,25 @@ impl Overlay {
                     self.texture_mask.addSublayer(&layer);
                     self.mask_tiles.push(layer);
                 }
-                self.mask_tiles[index].setFrame(overlay_rect(tile.rect, bounds));
+                self.mask_tiles[index].setFrame(overlay_rect(tile.rect, frame.bounds));
             }
         }
-        for (index, tile) in frame.tiles.iter().enumerate() {
-            if frame.geometry_changed || tile.is_animating() {
-                self.mask_tiles[index].setOpacity(tile.opacity(frame.progress));
+        if !self.behind_window {
+            for (index, tile) in frame.tiles.iter().enumerate() {
+                if rebuild_mask || tile.is_animating() {
+                    self.mask_tiles[index].setOpacity(tile.opacity(frame.progress));
+                }
             }
         }
         let radius = frame.native_blur_radius;
         if radius > 0.0 {
             // Mask a single full-display sample after blurring it, so window
             // cutouts and the boundaries between tiles cannot clip the blur.
-            if self.backdrop_radius == 0.0
-                || resized
-                || frame.geometry_changed
-                || frame.tiles.iter().any(|tile| tile.is_animating())
+            if !self.behind_window
+                && (self.backdrop_radius == 0.0
+                    || resized
+                    || rebuild_mask
+                    || frame.tiles.iter().any(|tile| tile.is_animating()))
             {
                 let mask = make_backdrop_mask(frame);
                 self.backdrop.setMaskImage(Some(&mask));
@@ -607,7 +714,7 @@ impl Overlay {
             let adjusted = self
                 .backdrop
                 .layer()
-                .is_some_and(|layer| set_backdrop_radius(&layer, radius));
+                .is_some_and(|layer| configure_backdrop(&layer, radius));
             let strength = if adjusted {
                 1.0
             } else {
@@ -633,7 +740,8 @@ impl Overlay {
     }
 
     pub fn hide(&mut self) {
-        if self.visible {
+        self.ordering_deadline = None;
+        if self.visible || self.window.isVisible() {
             self.window.orderOut(None);
             self.visible = false;
         }
@@ -646,7 +754,36 @@ impl Drop for Overlay {
     }
 }
 
-fn set_backdrop_radius(layer: &CALayer, radius: f32) -> bool {
+fn ordered_behind(window: &NSWindow, anchor: u64) -> bool {
+    let Some(windows) = on_screen_windows() else {
+        return false;
+    };
+    let id_key = NSString::from_str("kCGWindowNumber");
+    let layer_key = NSString::from_str("kCGWindowLayer");
+    let pid_key = NSString::from_str("kCGWindowOwnerPID");
+    let own_id = window.windowNumber() as u64;
+    let own_pid = std::process::id();
+    let mut previous = None;
+    for window in &windows {
+        let number = |key| window.objectForKey(key)?.downcast::<NSNumber>().ok();
+        let Some(id) = number(&id_key).map(|value| value.unsignedLongLongValue()) else {
+            continue;
+        };
+        if id == own_id {
+            return previous == Some(anchor);
+        }
+        // Other Duocle overlays can share the same anchor on adjacent displays.
+        if id == anchor
+            || (number(&layer_key).is_some_and(|value| value.intValue() == 0)
+                && !number(&pid_key).is_some_and(|value| value.unsignedIntValue() == own_pid))
+        {
+            previous = Some(id);
+        }
+    }
+    false
+}
+
+fn configure_backdrop(layer: &CALayer, radius: f32) -> bool {
     if layer.class().name() == c"CABackdropLayer" {
         let gaussian = NSString::from_str("gaussianBlur");
         let has_filter = layer.filters().is_some_and(|filters| {
@@ -660,7 +797,7 @@ fn set_backdrop_radius(layer: &CALayer, radius: f32) -> bool {
                     })
             })
         });
-        return has_filter
+        let adjusted = has_filter
             && exception::catch(AssertUnwindSafe(|| unsafe {
                 layer.setValue_forKeyPath(
                     Some(&NSNumber::new_f32(radius)),
@@ -668,12 +805,29 @@ fn set_backdrop_radius(layer: &CALayer, radius: f32) -> bool {
                 );
             }))
             .is_ok();
+        if adjusted {
+            // The material's tint is drawn by sibling layers. Keep the live
+            // Gaussian backdrop and let Duocle's Tint control supply any color.
+            if let Some(material) = layer.superlayer()
+                && let Some(layers) = unsafe { material.sublayers() }
+            {
+                for sibling in &layers {
+                    let class = sibling.class().name();
+                    if class == c"CAChameleonLayer"
+                        || (class == c"CALayer" && sibling.backgroundColor().is_some())
+                    {
+                        sibling.setHidden(true);
+                    }
+                }
+            }
+        }
+        return adjusted;
     }
     // The overlay and its layer tree are updated on AppKit's main thread.
     unsafe { layer.sublayers() }.is_some_and(|layers| {
         layers
             .iter()
-            .any(|layer| set_backdrop_radius(&layer, radius))
+            .any(|layer| configure_backdrop(&layer, radius))
     })
 }
 
