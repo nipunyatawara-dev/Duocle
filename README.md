@@ -6,18 +6,18 @@
 
 Duocle is a desktop focus utility for macOS and Windows. It follows your foreground window as you switch apps and applies a customizable blur and tint around it. Find it in the macOS menu bar or the Windows system tray.
 
-[Download a build](#install) · [Using Duocle](#using-duocle) · [Build from source](#build-from-source)
+[Install](#install) · [Using Duocle](#using-duocle) · [Build from source](#build-from-source)
 
 ## Install
 
-Sign in to GitHub, open the latest successful [Build Duocle run](https://github.com/nipunyatawara-dev/Duocle/actions/workflows/build.yml?query=branch%3Amain+is%3Asuccess), and download the artifact for your platform. Extract the outer artifact ZIP to find the package below. [GitHub's artifact download guide](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)
+Follow the [build instructions](#build-from-source) to create the package for your platform in `dist/`.
 
-| Platform | Artifact | Setup |
-| --- | --- | --- |
-| macOS 14.6+ · Apple silicon and Intel | `Duocle-macos-universal` | Extract `Duocle-macos-universal.zip`, move `Duocle.app` to Applications, and open it. |
-| Windows 11 · x64 | `Duocle-windows-x64` | Run `Duocle-windows-x64-setup.exe`, then open Duocle from the Start menu. |
+| Platform | Setup |
+| --- | --- |
+| macOS 14.6+ · Apple silicon and Intel | Extract `Duocle-macos-universal.zip`, move `Duocle.app` to Applications, and open it. |
+| Windows 11 · x64 | Run `Duocle-windows-x64-setup.exe`, then open Duocle from the Start menu. |
 
-The macOS build is ad hoc signed and unnotarized. The Windows installer is unsigned and uses the Microsoft Edge WebView2 Evergreen Runtime. If the installer says the runtime is missing, install it and rerun setup. [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
+By default, the macOS build is ad hoc signed and unnotarized. The Windows installer is unsigned and uses the Microsoft Edge WebView2 Evergreen Runtime. If the installer says the runtime is missing, install it and rerun setup. [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
 
 ## Using Duocle
 
