@@ -21,7 +21,9 @@ By default, the macOS build is ad hoc signed and unnotarized. The Windows instal
 
 ## Using Duocle
 
-Focus is enabled by default. Click the Duocle icon to open settings, or right-click it to toggle focus, switch modes, peek, or quit.
+Focus is enabled by default. Left-click the Duocle icon to open the menu, where you can toggle focus, switch modes, ignore the active app, or peek. Choose **Duocle settings…** to open the settings window or **Quit Duocle** to exit.
+
+The blur follows a window while it moves. It clears in macOS Mission Control and Windows Task View and resumes when you return to the desktop.
 
 - **Focus** — Use **Deep** to soften the background uniformly or **Ambient** for a gentler effect. Adjust blur, tint, and grain. For tint-only dimming, set blur, grain, and monochrome to zero. Choose **Per display** to keep a window clear on each display, or **Global** to follow the foreground window across displays.
 - **App rules** — Keep all windows from the active app clear, or group apps you use together. Ignored apps stay clear and pause the effect when they come to the foreground.

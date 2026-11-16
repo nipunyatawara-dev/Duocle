@@ -188,10 +188,18 @@ impl System {
         }
         let own_pid = std::process::id();
         let foreground = unsafe { GetForegroundWindow() };
-        if foreground.is_null() {
-            self.last_external = None;
-        } else if pid(foreground) != own_pid {
-            self.last_external = Some(foreground as u64);
+        let overview = match class(foreground).as_str() {
+            "MultitaskingViewFrame" | "TaskSwitcherWnd" => true,
+            "XamlExplorerHostIslandWindow" => pid(foreground) == pid(unsafe { GetShellWindow() }),
+            _ => false,
+        };
+        // Keep the last application while the shell owns the foreground.
+        if !overview {
+            if foreground.is_null() {
+                self.last_external = None;
+            } else if pid(foreground) != own_pid {
+                self.last_external = Some(foreground as u64);
+            }
         }
 
         let mut by_pid: HashMap<u32, AppInfo> = HashMap::new();
@@ -266,6 +274,7 @@ impl System {
             windows,
             foreground,
             foreground_app,
+            overview,
             apps,
         }
     }
@@ -314,6 +323,10 @@ fn corner_radius(window: HWND, focusable: bool) -> i32 {
 
 pub fn settings_window_id(window: &TaoWindow) -> u64 {
     window.hwnd() as u64
+}
+
+pub fn show_settings_without_activating(window: &TaoWindow) {
+    unsafe { ShowWindow(window.hwnd() as HWND, SW_SHOWNOACTIVATE) };
 }
 
 pub fn prepare_titlebar(window: &TaoWindow) -> u32 {

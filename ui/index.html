@@ -46,13 +46,14 @@
         </nav>
         <div class="rail-foot">
           <button
-            class="icon-button"
+            class="md-button text"
             type="button"
-            data-action="close"
-            aria-label="Close settings"
-            title="Close settings"
+            data-action="quit"
+            aria-label="Quit Duocle"
+            title="Quit Duocle"
           >
             <span class="material-symbol" aria-hidden="true">close</span>
+            <span>Quit</span>
           </button>
           <small>0.1.0</small>
         </div>
@@ -399,14 +400,6 @@
                   <option value="bottom_right">Bottom right</option>
                 </select></label
               >
-              <label class="row"
-                ><span class="label">Pause while dragging</span
-                ><input
-                  class="switch"
-                  role="switch"
-                  type="checkbox"
-                  data-key="pause_dragging"
-              /></label>
             </div>
           </div>
           <div class="section">
@@ -442,17 +435,6 @@
                   <option value="cursor">From cursor</option>
                 </select></label
               >
-              <label class="row"
-                ><span class="label" id="tray-label"
-                  >Tray click toggles focus<small
-                    >Right-click for the settings menu.</small
-                  ></span
-                ><input
-                  class="switch"
-                  role="switch"
-                  type="checkbox"
-                  data-key="click_toggles"
-              /></label>
               <label class="row"
                 ><span class="label">Launch at login</span
                 ><input id="login" class="switch" role="switch" type="checkbox"

@@ -106,7 +106,7 @@ impl System {
             .and_then(|value| value.downcast::<NSString>().ok())
             .is_some_and(|value| value.to_string() == "left");
 
-        let displays = NSScreen::screens(mtm)
+        let displays: Vec<_> = NSScreen::screens(mtm)
             .iter()
             .filter_map(|screen| {
                 let id = screen
@@ -163,6 +163,7 @@ impl System {
         let version = NSProcessInfo::processInfo().operatingSystemVersion();
         let corner_radius = if version.majorVersion >= 26 { 21 } else { 11 };
         let mut windows = Vec::new();
+        let mut overview = false;
         if let Some(list) = CGWindowListCopyWindowInfo(
             CGWindowListOption::OptionOnScreenOnly | CGWindowListOption::ExcludeDesktopElements,
             0,
@@ -197,14 +198,17 @@ impl System {
                 } else {
                     continue;
                 };
-                if matches!(
-                    app,
-                    "com.apple.dock" | "com.apple.WindowManager" | "com.apple.controlcenter"
-                ) {
-                    continue;
-                }
                 let layer = number(&layer_key).map_or(-1, |value| value.intValue());
-                if !(0..=8).contains(&layer)
+                let overview_surface = matches!(
+                    (app, layer),
+                    ("com.apple.WindowManager", 19) | ("com.apple.dock", 18)
+                );
+                let app_window = (0..=8).contains(&layer)
+                    && !matches!(
+                        app,
+                        "com.apple.dock" | "com.apple.WindowManager" | "com.apple.controlcenter"
+                    );
+                if (!app_window && !overview_surface)
                     || number(&alpha_key).is_some_and(|value| value.doubleValue() < 0.1)
                 {
                     continue;
@@ -222,6 +226,14 @@ impl System {
                         .map_or(0, |value| value.doubleValue().round() as i32)
                 });
                 let rect = Rect::new(numbers[0], numbers[1], numbers[2], numbers[3]);
+                if overview_surface {
+                    // The overview shield belongs to WindowManager on macOS 27
+                    // and to the Dock on older releases. Titles can be redacted.
+                    overview |= displays
+                        .iter()
+                        .any(|display| rect.intersection(display.bounds) == Some(display.bounds));
+                    continue;
+                }
                 if rect.w < 24 || rect.h < 18 {
                     continue;
                 }
@@ -254,6 +266,7 @@ impl System {
             windows,
             foreground: focused,
             foreground_app,
+            overview,
             apps,
         }
     }
@@ -283,6 +296,10 @@ pub fn settings_window_id(window: &TaoWindow) -> u64 {
 pub fn prepare_titlebar(window: &TaoWindow) -> u32 {
     let native = unsafe { &*window.ns_window().cast::<NSWindow>() };
     native.setTitlebarSeparatorStyle(NSTitlebarSeparatorStyle::None);
+    native.setCollectionBehavior(
+        (native.collectionBehavior() - (Collection::Stationary | Collection::Managed))
+            | Collection::Transient,
+    );
     (native.frame().size.height - native.contentLayoutRect().size.height)
         .round()
         .clamp(28.0, 64.0) as u32
@@ -472,7 +489,7 @@ impl Overlay {
         window.setCollectionBehavior(
             Collection::CanJoinAllSpaces
                 | Collection::FullScreenAuxiliary
-                | Collection::Stationary
+                | Collection::Transient
                 | Collection::IgnoresCycle,
         );
         window.setAnimationBehavior(NSWindowAnimationBehavior::None);

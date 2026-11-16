@@ -30,7 +30,6 @@ impl Pointer {
 #[derive(Default)]
 pub struct Gestures {
     previous: Option<Pointer>,
-    drag_start: Option<Pointer>,
     turns: Vec<u64>,
     direction: i32,
     travel: u32,
@@ -62,14 +61,6 @@ impl Gestures {
         let previous = self.previous.replace(pointer).unwrap_or(pointer);
         let dx = pointer.x - previous.x;
         let dy = pointer.y - previous.y;
-
-        if !pointer.down {
-            self.drag_start = None;
-        }
-        let dragging = pointer.down && {
-            let start = self.drag_start.get_or_insert(pointer);
-            (start.x - pointer.x).abs() + (start.y - pointer.y).abs() > 8
-        };
 
         let mut toggle = false;
         let minimum = 38 - i32::from(settings.sensitivity) / 4;
@@ -133,9 +124,7 @@ impl Gestures {
 
         GestureState {
             toggle,
-            paused: (settings.pause_dragging && dragging)
-                || now < self.peek_until
-                || self.peek_modifier.is_some(),
+            paused: now < self.peek_until || self.peek_modifier.is_some(),
         }
     }
 }
@@ -143,6 +132,25 @@ impl Gestures {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn holding_the_mouse_while_moving_keeps_focus_active() {
+        let mut gestures = Gestures::default();
+        let settings: Settings = serde_json::from_str(r#"{"pause_dragging":true}"#).unwrap();
+        for (time, x) in [(0, 10), (16, 90), (32, 160)] {
+            let state = gestures.update(
+                time,
+                Pointer {
+                    x,
+                    down: true,
+                    ..Pointer::default()
+                },
+                &[],
+                &settings,
+            );
+            assert!(!state.paused && !state.toggle);
+        }
+    }
 
     #[test]
     fn shake_peek_extends_until_shift_is_released() {

@@ -1,6 +1,6 @@
 use crate::{
     automation::{self, Command, Paths},
-    config::{Mode, Reveal, Settings, Shortcuts, parse_color},
+    config::{AppInfo, Mode, Reveal, Settings, Shortcuts, parse_color},
     effect::{self, Size},
     focus::{self, Coverage, Desktop, Mask},
     gesture::{Gestures, Pointer},
@@ -33,7 +33,7 @@ use wry::{WebView, WebViewBuilder};
 
 enum Message {
     Ui(String),
-    Tray(TrayIconEvent),
+    TrayMenu,
     Menu(MenuEvent),
     HotKey(GlobalHotKeyEvent),
 }
@@ -50,17 +50,21 @@ enum UiAction {
     Login { value: bool },
     Capture,
     Close,
+    Quit,
 }
 
 struct SettingsWindow {
     _webview: WebView,
     window: Window,
+    #[cfg(target_os = "windows")]
+    hidden_for_overview: bool,
 }
 
 struct Tray {
     icon: TrayIcon,
     toggle: MenuItem,
     ignore: MenuItem,
+    ignore_app: Option<AppInfo>,
 }
 
 #[derive(Default)]
@@ -227,7 +231,16 @@ pub fn run() -> Result<()> {
 
     let sender = proxy.clone();
     TrayIconEvent::set_event_handler(Some(move |event| {
-        let _ = sender.send_event(Message::Tray(event));
+        if matches!(
+            event,
+            TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            }
+        ) {
+            let _ = sender.send_event(Message::TrayMenu);
+        }
     }));
     let sender = proxy.clone();
     MenuEvent::set_event_handler(Some(move |event| {
@@ -329,7 +342,7 @@ impl App {
         self.launched_at_login = platform::login_enabled();
         let menu = Menu::new();
         let toggle = MenuItem::with_id("toggle", "Enable focus", true, None);
-        let ignore = MenuItem::with_id("ignore", "Ignore front app", true, None);
+        let ignore = MenuItem::with_id("ignore", "Ignore front app", false, None);
         menu.append_items(&[
             &toggle,
             &MenuItem::with_id("mode", "Switch focus mode", true, None),
@@ -342,6 +355,7 @@ impl App {
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
             .with_menu_on_left_click(false)
+            .with_menu_on_right_click(false)
             .with_icon_as_template(cfg!(target_os = "macos"))
             .with_tooltip("Duocle")
             .with_icon(tray_image(self.settings.enabled)?)
@@ -350,6 +364,7 @@ impl App {
             icon,
             toggle,
             ignore,
+            ignore_app: None,
         });
         if let Err(error) = self.register(&self.settings.shortcuts.clone()) {
             self.notice = Some(format!("A global shortcut is unavailable. {error}"));
@@ -397,10 +412,20 @@ impl App {
             self.window = Some(SettingsWindow {
                 _webview: webview,
                 window,
+                #[cfg(target_os = "windows")]
+                hidden_for_overview: false,
             });
             self.ui_state.clear();
         }
-        if let Some(window) = &self.window {
+        if let Some(window) = &mut self.window {
+            #[cfg(target_os = "windows")]
+            {
+                window.hidden_for_overview = visible && self.desktop.overview;
+                if window.hidden_for_overview {
+                    window.window.set_visible(false);
+                    return Ok(());
+                }
+            }
             window.window.set_visible(visible);
             if visible {
                 window.window.set_focus();
@@ -438,26 +463,39 @@ impl App {
                     }
                     UiAction::Capture => platform::request_capture(),
                     UiAction::Close => self.show(target, false)?,
+                    UiAction::Quit => {
+                        self.execute(target, Command::Quit)?;
+                    }
                 }
                 self.publish();
                 return Ok(());
             }
-            Message::Tray(TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            }) => {
-                if self.settings.click_toggles {
-                    Some(Command::Toggle)
-                } else {
-                    Some(Command::Settings)
+            Message::TrayMenu => {
+                let app = front_app(&self.read_desktop());
+                if let Some(tray) = &mut self.tray {
+                    tray.ignore.set_enabled(app.is_some());
+                    let label = match &app {
+                        Some(app) if self.settings.is_ignored(&app.id) => {
+                            format!("Include {}", app.name)
+                        }
+                        Some(app) => format!("Ignore {}", app.name),
+                        None => "Ignore front app".into(),
+                    };
+                    tray.ignore.set_text(label);
+                    tray.ignore_app = app;
+                    tray.icon.show_menu();
                 }
+                return Ok(());
             }
-            Message::Tray(_) => None,
             Message::Menu(event) => match event.id.as_ref() {
                 "toggle" => Some(Command::Toggle),
                 "mode" => return self.switch_mode(),
-                "ignore" => Some(Command::Ignore),
+                "ignore" => {
+                    if let Some(app) = self.tray.as_mut().and_then(|tray| tray.ignore_app.take()) {
+                        self.toggle_ignore(app)?;
+                    }
+                    return Ok(());
+                }
                 "peek" => Some(Command::Peek),
                 "settings" => Some(Command::Settings),
                 "quit" => Some(Command::Quit),
@@ -506,7 +544,11 @@ impl App {
             Command::Settings => self.show(target, true)?,
             Command::Quit => self.exit = true,
             Command::Mode(mode) => self.patch("mode", json!(mode))?,
-            Command::Ignore => self.toggle_ignore()?,
+            Command::Ignore => {
+                let app = front_app(&self.read_desktop())
+                    .context("There is no front application to ignore.")?;
+                self.toggle_ignore(app)?;
+            }
             Command::Set(key, value) => self.patch(&key, value)?,
         }
         Ok(Value::Null)
@@ -525,28 +567,11 @@ impl App {
         self.patch("mode", json!(mode))
     }
 
-    fn toggle_ignore(&mut self) -> Result<()> {
-        self.snapshot_desktop();
-        let id = self
-            .desktop
-            .foreground_app
-            .as_deref()
-            .filter(|id| *id != SETTINGS_APP_ID)
-            .context("There is no front application to ignore.")?;
+    fn toggle_ignore(&mut self, app: AppInfo) -> Result<()> {
         let mut settings = self.settings.clone();
-        if settings.is_ignored(id) {
-            settings.ignored.retain(|app| app.id != id);
+        if settings.is_ignored(&app.id) {
+            settings.ignored.retain(|ignored| ignored.id != app.id);
         } else {
-            let app = self
-                .desktop
-                .apps
-                .iter()
-                .find(|app| app.id == id)
-                .cloned()
-                .unwrap_or_else(|| crate::config::AppInfo {
-                    id: id.into(),
-                    name: id.into(),
-                });
             settings.ignored.push(app);
         }
         self.commit(settings)
@@ -667,17 +692,22 @@ impl App {
         }
     }
 
-    fn snapshot_desktop(&mut self) -> bool {
+    fn read_desktop(&mut self) -> Desktop {
         let settings_id = self
             .window
             .as_ref()
             .filter(|window| window.window.is_visible())
             .map(|window| platform::settings_window_id(&window.window));
-        let next = self.system.snapshot(settings_id);
+        self.system.snapshot(settings_id)
+    }
+
+    fn snapshot_desktop(&mut self) -> bool {
+        let next = self.read_desktop();
         let changed = next.displays != self.desktop.displays
             || next.windows != self.desktop.windows
             || next.foreground != self.desktop.foreground
-            || next.foreground_app != self.desktop.foreground_app;
+            || next.foreground_app != self.desktop.foreground_app
+            || next.overview != self.desktop.overview;
         self.desktop = next;
         changed
     }
@@ -701,7 +731,7 @@ impl App {
             "apps": self.desktop.apps,
             "foreground": self.desktop.foreground_app,
             "foreground_name": self.foreground_name(),
-            "paused": self.paused,
+            "paused": self.paused || self.desktop.overview,
             "focused_window": self.desktop.foreground.and_then(|id| {
                 self.desktop.windows.iter().find(|window| window.id == id)
             }).map(|window| {
@@ -757,11 +787,12 @@ impl App {
                 self.revision += 1;
             }
         }
+        let previous_foreground = self.desktop.foreground;
         let mut layout_changed = false;
         if now >= self.next_snapshot {
             let scan_interval = if self.settings.enabled {
-                45
-            } else if show_settings {
+                if self.pointer.down { 16 } else { 45 }
+            } else if show_settings || self.desktop.overview {
                 500
             } else {
                 850
@@ -770,23 +801,15 @@ impl App {
             layout_changed = self.snapshot_desktop();
             self.desktop.apps.sort_by_key(|app| app.name.to_lowercase());
             self.desktop.apps.dedup_by(|a, b| a.id == b.id);
-            if let Some(tray) = &self.tray {
-                let active = self.desktop.foreground_app.as_deref();
-                let name = self
-                    .desktop
-                    .apps
-                    .iter()
-                    .find(|app| Some(app.id.as_str()) == active)
-                    .map(|app| app.name.as_str());
-                let verb = if active.is_some_and(|id| self.settings.is_ignored(id)) {
-                    "Include"
-                } else {
-                    "Ignore"
-                };
-                tray.ignore
-                    .set_enabled(active.is_some_and(|id| id != SETTINGS_APP_ID));
-                tray.ignore
-                    .set_text(format!("{verb} {}", name.unwrap_or("front app")));
+            #[cfg(target_os = "windows")]
+            if let Some(window) = &mut self.window {
+                if self.desktop.overview && window.window.is_visible() {
+                    window.hidden_for_overview = true;
+                    window.window.set_visible(false);
+                } else if !self.desktop.overview && std::mem::take(&mut window.hidden_for_overview)
+                {
+                    platform::show_settings_without_activating(&window.window);
+                }
             }
             self.monitors.retain(|id, _| {
                 self.desktop
@@ -814,6 +837,9 @@ impl App {
 
         let desired = self.settings.enabled && !self.paused;
         let changed = std::mem::replace(&mut self.wants_focus, desired) != desired;
+        let animate_geometry = !layout_changed
+            || previous_foreground != self.desktop.foreground
+            || self.planned_revision != self.revision;
         if layout_changed || changed || self.planned_revision != self.revision {
             self.planned_revision = self.revision;
             let masks = if desired {
@@ -854,7 +880,9 @@ impl App {
         }
         let visible = self.target_visible;
         let step = elapsed * 1000.0 / f32::from(self.settings.transition.max(1));
-        self.opacity = if self.settings.transition == 0 {
+        self.opacity = if self.desktop.overview {
+            0.0
+        } else if self.settings.transition == 0 {
             if visible { 1.0 } else { 0.0 }
         } else if visible {
             (self.opacity + step).min(1.0)
@@ -865,7 +893,7 @@ impl App {
         if self.opacity == 0.0 {
             self.masks.clear();
         }
-        self.present(now);
+        self.present(now, animate_geometry);
         self.publish();
     }
 
@@ -930,7 +958,7 @@ impl App {
         }
     }
 
-    fn present(&mut self, now: Instant) {
+    fn present(&mut self, now: Instant, animate_geometry: bool) {
         let opacity = focus::ease(self.opacity);
         let duration = Duration::from_millis(u64::from(self.settings.transition));
         for (id, _) in &self.masks {
@@ -958,10 +986,16 @@ impl App {
                 }
             };
             let (mask_changed, geometry_changed) = match screen.coverage.as_mut() {
-                Some(coverage) => (
-                    coverage.target != *mask,
-                    coverage.update(mask, now, duration),
-                ),
+                Some(coverage) => {
+                    let mask_changed = coverage.target != *mask;
+                    let duration = if mask_changed && !animate_geometry {
+                        // Follow the same focused window as it moves or resizes.
+                        Duration::ZERO
+                    } else {
+                        duration
+                    };
+                    (mask_changed, coverage.update(mask, now, duration))
+                }
                 None => {
                     screen.coverage = Some(Coverage::new(mask.clone(), now));
                     (true, true)
@@ -1079,6 +1113,24 @@ impl App {
             }
         }
     }
+}
+
+fn front_app(desktop: &Desktop) -> Option<AppInfo> {
+    let id = desktop
+        .foreground_app
+        .as_deref()
+        .filter(|id| *id != SETTINGS_APP_ID && !desktop.overview)?;
+    Some(
+        desktop
+            .apps
+            .iter()
+            .find(|app| app.id == id)
+            .cloned()
+            .unwrap_or_else(|| AppInfo {
+                id: id.into(),
+                name: id.into(),
+            }),
+    )
 }
 
 fn settings_html(titlebar_inset: u32) -> String {

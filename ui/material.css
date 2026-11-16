@@ -266,6 +266,10 @@ nav {
   font: var(--md-sys-typescale-body-small);
 }
 
+.rail-foot .md-button {
+  padding-inline: 10px;
+}
+
 /* Content and actions */
 
 main {

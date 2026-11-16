@@ -83,6 +83,7 @@ pub struct Desktop {
     pub windows: Vec<Window>,
     pub foreground: Option<u64>,
     pub foreground_app: Option<String>,
+    pub overview: bool,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     pub apps: Vec<AppInfo>,
 }
@@ -323,10 +324,11 @@ pub fn mac_foreground<'a>(windows: &'a [Window], app: &str) -> Option<&'a Window
 }
 
 pub fn plan(desktop: &Desktop, settings: &Settings) -> Vec<(u64, Mask)> {
-    if desktop
-        .foreground_app
-        .as_deref()
-        .is_some_and(|app| settings.is_ignored(app))
+    if desktop.overview
+        || desktop
+            .foreground_app
+            .as_deref()
+            .is_some_and(|app| settings.is_ignored(app))
     {
         return Vec::new();
     }
@@ -614,6 +616,18 @@ mod tests {
 
         settings.dim_chrome = true;
         assert_eq!(plan(&desktop, &settings)[0].1.bounds, display.bounds);
+    }
+
+    #[test]
+    fn overview_suppresses_masks_until_the_desktop_returns() {
+        let mut desktop = desktop();
+        let settings = Settings::default();
+        let original = plan(&desktop, &settings);
+        assert!(!original.is_empty());
+        desktop.overview = true;
+        assert!(plan(&desktop, &settings).is_empty());
+        desktop.overview = false;
+        assert_eq!(plan(&desktop, &settings), original);
     }
 
     #[test]
