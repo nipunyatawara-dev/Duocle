@@ -38,7 +38,7 @@ Focus is enabled by default. Click the Duocle icon to open settings, or right-cl
 
 ## Screen access
 
-On macOS, standard blur uses AppKit's compositor and works without Screen Recording or Accessibility access. Enable **Precise effects** and grant Screen Recording permission to control the pixel blur radius or use monochrome.
+On macOS, standard blur uses AppKit's compositor and works without Screen Recording or Accessibility access. Enable **Precise effects** and grant Screen Recording permission to use pixel-based blur and monochrome.
 
 Windows uses Win32 GDI desktop frames for blur and monochrome. Layered windows and protected hardware surfaces can appear incomplete in those frames. Duocle processes captured frames locally in memory without saving or transmitting them.
 

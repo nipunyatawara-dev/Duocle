@@ -23,6 +23,19 @@ impl Size {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub const MAX_MAC_BLUR_RADIUS: f32 = 125.0;
+
+#[cfg(target_os = "macos")]
+pub fn mac_blur_radius(settings: &Settings) -> f32 {
+    let radius = f32::from(settings.blur) / 100.0 * MAX_MAC_BLUR_RADIUS;
+    if settings.mode == Mode::Ambient {
+        radius * 0.85
+    } else {
+        radius
+    }
+}
+
 /// Renders premultiplied BGRA. Native masks handle the crisp edges of clear
 /// windows independently of the resolution used for the filtered background.
 pub fn render(
@@ -34,9 +47,15 @@ pub fn render(
 ) -> Vec<u8> {
     let image = image.filter(|image| image.dimensions() == (size.width, size.height));
     let softened = image.filter(|_| settings.blur > 0).map(|image| {
+        #[cfg(target_os = "macos")]
+        let sigma = mac_blur_radius(settings) * size.width as f32 / mask.bounds.w.max(1) as f32;
+        #[cfg(not(target_os = "macos"))]
         let strength = f32::from(settings.blur) / 100.0;
-        image::imageops::fast_blur(image, 0.8 + 13.0 * strength * strength)
+        #[cfg(not(target_os = "macos"))]
+        let sigma = 0.8 + 13.0 * strength * strength;
+        image::imageops::fast_blur(image, sigma)
     });
+    let continuous_blur = cfg!(target_os = "macos") && softened.is_some();
     let filtered = softened.as_ref().or(image);
     let [tr, tg, tb] = parse_color(&settings.tint)
         .unwrap_or([18, 27, 41])
@@ -75,6 +94,13 @@ pub fn render(
                 .wrapping_mul(0x85eb_ca6b);
             let noise = ((random >> 24) as f32 / 255.0 - 0.5) * grain;
             let (red, green, blue, alpha) = if let Some(img) = filtered {
+                // Ambient varies the tint over the blur. Blending the capture
+                // with the live desktop would bring sharp text back into focus.
+                let (tint, noise, opacity) = if continuous_blur {
+                    (tint * ambient, noise * ambient, 1.0)
+                } else {
+                    (tint, noise, ambient)
+                };
                 let [r, g, b] = img.get_pixel(x, y).0.map(f32::from);
                 let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
                 let mix = |color: f32, tint_color: f32| {
@@ -83,7 +109,7 @@ pub fn render(
                         + noise)
                         .clamp(0.0, 255.0)
                 };
-                (mix(r, tr), mix(g, tg), mix(b, tb), ambient * aperture)
+                (mix(r, tr), mix(g, tg), mix(b, tb), opacity * aperture)
             } else {
                 // Grain is translucent over the live desktop, even with tint disabled.
                 let noise_alpha = noise.abs() / 72.0;
@@ -123,6 +149,31 @@ pub fn image_from_bgra(size: Size, bgra: &[u8]) -> Option<RgbImage> {
 mod tests {
     use super::*;
     use crate::focus::Rect;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ambient_blur_has_full_coverage_and_graduated_tint() {
+        let mask = Mask {
+            bounds: Rect::new(0, 0, 16, 16),
+            clear: vec![],
+            ambient: vec![Rect::new(0, 0, 8, 8)],
+        };
+        let settings = Settings {
+            mode: Mode::Ambient,
+            ..Settings::default()
+        };
+        let size = Size::for_mask(&mask);
+        let desktop = RgbImage::from_pixel(size.width, size.height, image::Rgb([255, 255, 255]));
+        let pixels = render(&mask, &settings, size, Some(&desktop), None);
+        assert!(
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
+        );
+        assert!(pixels[2] > pixels[pixels.len() - 2]);
+    }
 
     #[test]
     fn tint_is_premultiplied_and_monochrome_removes_color() {

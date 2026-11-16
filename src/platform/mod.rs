@@ -19,6 +19,8 @@ pub struct CaptureJob {
     pub display: Display,
     pub size: Size,
     pub bounds: Rect,
+    #[cfg(target_os = "macos")]
+    pub chrome: bool,
 }
 
 pub type Frame = (u64, Size, Option<RgbImage>);
@@ -33,7 +35,9 @@ pub struct OverlayFrame<'a> {
     pub pixels: Option<&'a [u8]>,
     pub opacity: f32,
     #[cfg(target_os = "macos")]
-    pub native_blur: f32,
+    pub native_blur_radius: f32,
+    #[cfg(target_os = "macos")]
+    pub native_blur_opacity: f32,
     #[cfg(target_os = "macos")]
     pub chrome: bool,
 }

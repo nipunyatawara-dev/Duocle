@@ -1,18 +1,23 @@
 use super::{CaptureJob, Frame, OverlayFrame, SETTINGS_APP_ID};
 use crate::{
     config::AppInfo,
-    effect::{Size, image_from_bgra},
+    effect::{MAX_MAC_BLUR_RADIUS, Size, image_from_bgra},
     focus::{Desktop, Display, Rect, Window, mac_foreground},
     gesture::Pointer,
 };
 use anyhow::{Context, Result, anyhow};
 use block2::RcBlock;
-use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, rc::Retained, runtime::AnyObject};
+use objc2::{
+    AnyThread, MainThreadMarker, MainThreadOnly, exception,
+    rc::Retained,
+    runtime::{AnyObject, NSObject, NSObjectProtocol},
+};
 use objc2_app_kit::{
-    NSBackingStoreType, NSColor, NSEvent, NSEventModifierFlags as Flags, NSRunningApplication,
-    NSScreen, NSTitlebarSeparatorStyle, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-    NSVisualEffectState, NSVisualEffectView, NSWindow, NSWindowAnimationBehavior,
-    NSWindowCollectionBehavior as Collection, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSBackingStoreType, NSColor, NSEvent, NSEventModifierFlags as Flags, NSImage,
+    NSRunningApplication, NSScreen, NSTitlebarSeparatorStyle, NSView, NSVisualEffectBlendingMode,
+    NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
+    NSWindowAnimationBehavior, NSWindowCollectionBehavior as Collection, NSWindowStyleMask,
+    NSWorkspace,
 };
 use objc2_core_foundation::{CFData, CFRetained, CGRect};
 use objc2_core_graphics::{
@@ -21,15 +26,15 @@ use objc2_core_graphics::{
     CGWindowListCopyWindowInfo, CGWindowListOption,
 };
 use objc2_foundation::{
-    NSArray, NSDictionary, NSError, NSNumber, NSPoint, NSProcessInfo, NSRect, NSSize, NSString,
-    NSUserDefaults,
+    NSArray, NSDictionary, NSError, NSNumber, NSObjectNSKeyValueCoding, NSPoint, NSProcessInfo,
+    NSRect, NSSize, NSString, NSUserDefaults,
 };
 use objc2_quartz_core::{CALayer, CATransaction};
 use objc2_screen_capture_kit::{
     SCContentFilter, SCScreenshotManager, SCShareableContent, SCStreamConfiguration,
 };
 use objc2_service_management::{SMAppService, SMAppServiceStatus};
-use std::{collections::HashMap, ptr, sync::mpsc, time::Duration};
+use std::{collections::HashMap, panic::AssertUnwindSafe, ptr, sync::mpsc, time::Duration};
 use tao::{platform::macos::WindowExtMacOS, window::Window as TaoWindow};
 
 #[derive(Default)]
@@ -335,11 +340,8 @@ pub fn capture(jobs: Vec<CaptureJob>) -> Vec<Frame> {
 
         let screens = unsafe { content.displays() };
         let applications = unsafe { content.applications() };
-        let excluded = applications
-            .iter()
-            .filter(|app| unsafe { app.processID() == std::process::id() as i32 })
-            .collect::<Vec<_>>();
-        let excluded = NSArray::from_retained_slice(&excluded);
+        let own_pid = std::process::id() as i32;
+        let dock = NSString::from_str("com.apple.dock");
         let (send, receive) = mpsc::channel();
         let mut slots = Vec::new();
 
@@ -353,13 +355,21 @@ pub fn capture(jobs: Vec<CaptureJob>) -> Vec<Frame> {
                 continue;
             };
             unsafe {
+                let excluded = applications
+                    .iter()
+                    .filter(|app| {
+                        app.processID() == own_pid
+                            || (!job.chrome && app.bundleIdentifier().isEqualToString(&dock))
+                    })
+                    .collect::<Vec<_>>();
                 let filter =
                     SCContentFilter::initWithDisplay_excludingApplications_exceptingWindows(
                         SCContentFilter::alloc(),
                         &screen,
-                        &excluded,
+                        &NSArray::from_retained_slice(&excluded),
                         &NSArray::new(),
                     );
+                filter.setIncludeMenuBar(job.chrome);
                 let configuration = SCStreamConfiguration::new();
                 configuration.setWidth(size.width as usize);
                 configuration.setHeight(size.height as usize);
@@ -419,15 +429,13 @@ pub fn capture(jobs: Vec<CaptureJob>) -> Vec<Frame> {
 
 pub struct Overlay {
     window: Retained<NSWindow>,
-    backdrop: Vec<Retained<NSVisualEffectView>>,
+    backdrop: Retained<NSVisualEffectView>,
     texture_view: Retained<NSView>,
     texture: Retained<CALayer>,
     texture_mask: Retained<CALayer>,
     mask_tiles: Vec<Retained<CALayer>>,
     bounds: Option<Rect>,
-    backdrop_dirty: bool,
-    backdrop_visible: bool,
-    backdrop_strength: f32,
+    backdrop_radius: f32,
     level: isize,
     visible: bool,
 }
@@ -461,6 +469,13 @@ impl Overlay {
         window.setAnimationBehavior(NSWindowAnimationBehavior::None);
 
         let base = NSView::initWithFrame(NSView::alloc(mtm), rect);
+        let backdrop = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), rect);
+        backdrop.setMaterial(NSVisualEffectMaterial::FullScreenUI);
+        backdrop.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+        backdrop.setState(NSVisualEffectState::Active);
+        backdrop.setWantsLayer(true);
+        backdrop.setHidden(true);
+        base.addSubview(&backdrop);
         let texture_view = NSView::initWithFrame(NSView::alloc(mtm), rect);
         texture_view.setWantsLayer(true);
         let texture = CALayer::new();
@@ -471,15 +486,13 @@ impl Overlay {
         unsafe { texture.setMask(Some(&texture_mask)) };
         Ok(Self {
             window,
-            backdrop: Vec::new(),
+            backdrop,
             texture_view,
             texture,
             texture_mask,
             mask_tiles: Vec::new(),
             bounds: None,
-            backdrop_dirty: true,
-            backdrop_visible: false,
-            backdrop_strength: 0.0,
+            backdrop_radius: 0.0,
             level: -1,
             visible: false,
         })
@@ -507,7 +520,8 @@ impl Overlay {
 
     fn update_layers(&mut self, frame: &OverlayFrame<'_>) -> Result<()> {
         let bounds = frame.bounds;
-        if self.bounds != Some(bounds) {
+        let resized = self.bounds != Some(bounds);
+        if resized {
             let mtm = MainThreadMarker::new().unwrap();
             let position = Rect::new(
                 bounds.x,
@@ -517,6 +531,7 @@ impl Overlay {
             );
             let local = cg_rect(Rect::new(0, 0, bounds.w, bounds.h));
             self.window.setFrame_display(cg_rect(position), false);
+            self.backdrop.setFrame(local);
             self.texture_view.setFrame(local);
             self.texture.setFrame(local);
             self.texture_mask.setFrame(local);
@@ -548,60 +563,46 @@ impl Overlay {
                 }
                 self.mask_tiles[index].setFrame(local(tile.rect));
             }
-            self.backdrop_dirty = true;
         }
-        let show_backdrop = frame.native_blur > 0.0;
-        let rebuild_backdrop = show_backdrop && self.backdrop_dirty;
-        if rebuild_backdrop {
-            let mtm = MainThreadMarker::new().context("update backdrop on the main thread")?;
-            let base = self
-                .window
-                .contentView()
-                .context("overlay has no content view")?;
-            for view in self
-                .backdrop
-                .drain(frame.tiles.len().min(self.backdrop.len())..)
-            {
-                view.removeFromSuperview();
-            }
-            for (index, tile) in frame.tiles.iter().enumerate() {
-                let rect = local(tile.rect);
-                if let Some(view) = self.backdrop.get(index) {
-                    view.setFrame(rect);
-                } else {
-                    let view =
-                        NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), rect);
-                    view.setMaterial(NSVisualEffectMaterial::HUDWindow);
-                    view.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
-                    view.setState(NSVisualEffectState::Active);
-                    view.setHidden(!self.backdrop_visible);
-                    base.addSubview_positioned_relativeTo(
-                        &view,
-                        NSWindowOrderingMode::Below,
-                        Some(&self.texture_view),
-                    );
-                    self.backdrop.push(view);
-                }
-            }
-            self.backdrop_dirty = false;
-        }
-        if self.backdrop_visible != show_backdrop {
-            for view in &self.backdrop {
-                view.setHidden(!show_backdrop);
-            }
-            self.backdrop_visible = show_backdrop;
-        }
-        let strength_changed = self.backdrop_strength != frame.native_blur;
-        self.backdrop_strength = frame.native_blur;
         for (index, tile) in frame.tiles.iter().enumerate() {
-            let alpha = tile.opacity(frame.progress);
             if frame.geometry_changed || tile.is_animating() {
-                self.mask_tiles[index].setOpacity(alpha);
-            }
-            if show_backdrop && (rebuild_backdrop || strength_changed || tile.is_animating()) {
-                self.backdrop[index].setAlphaValue(f64::from(alpha * frame.native_blur));
+                self.mask_tiles[index].setOpacity(tile.opacity(frame.progress));
             }
         }
+        let radius = frame.native_blur_radius;
+        if radius > 0.0 {
+            // Mask a single full-display sample after blurring it, so window
+            // cutouts and the boundaries between tiles cannot clip the blur.
+            if self.backdrop_radius == 0.0
+                || resized
+                || frame.geometry_changed
+                || frame.tiles.iter().any(|tile| tile.is_animating())
+            {
+                let mask = make_backdrop_mask(frame)?;
+                self.backdrop.setMaskImage(Some(&mask));
+            }
+            if self.backdrop_radius == 0.0 {
+                self.backdrop.setHidden(false);
+                self.backdrop.layoutSubtreeIfNeeded();
+                self.backdrop.displayIfNeeded();
+            }
+            let adjusted = self
+                .backdrop
+                .layer()
+                .is_some_and(|layer| set_backdrop_radius(&layer, radius));
+            let strength = if adjusted {
+                1.0
+            } else {
+                // The system recipe remains available if AppKit changes its layers.
+                1.0 - (1.0 - radius / MAX_MAC_BLUR_RADIUS).powi(6)
+            };
+            self.backdrop
+                .setAlphaValue(f64::from(strength * frame.native_blur_opacity));
+        } else if self.backdrop_radius > 0.0 {
+            self.backdrop.setHidden(true);
+            self.backdrop.setMaskImage(None);
+        }
+        self.backdrop_radius = radius;
         if let Some(pixels) = frame.pixels {
             let image = make_image(frame.size, pixels)?;
             // CALayer.contents explicitly accepts a retained CGImage.
@@ -625,6 +626,79 @@ impl Drop for Overlay {
     fn drop(&mut self) {
         self.window.close();
     }
+}
+
+fn set_backdrop_radius(layer: &CALayer, radius: f32) -> bool {
+    if layer.class().name() == c"CABackdropLayer" {
+        let gaussian = NSString::from_str("gaussianBlur");
+        let has_filter = layer.filters().is_some_and(|filters| {
+            filters.iter().any(|filter| {
+                filter.class().name() == c"CAFilter"
+                    && filter.downcast::<NSObject>().is_ok_and(|filter| {
+                        filter
+                            .description()
+                            .downcast::<NSString>()
+                            .is_ok_and(|name| name.isEqualToString(&gaussian))
+                    })
+            })
+        });
+        return has_filter
+            && exception::catch(AssertUnwindSafe(|| unsafe {
+                layer.setValue_forKeyPath(
+                    Some(&NSNumber::new_f32(radius)),
+                    &NSString::from_str("filters.gaussianBlur.inputRadius"),
+                );
+            }))
+            .is_ok();
+    }
+    // The overlay and its layer tree are updated on AppKit's main thread.
+    unsafe { layer.sublayers() }.is_some_and(|layers| {
+        layers
+            .iter()
+            .any(|layer| set_backdrop_radius(&layer, radius))
+    })
+}
+
+fn make_backdrop_mask(frame: &OverlayFrame<'_>) -> Result<Retained<NSImage>> {
+    let bounds = frame.bounds;
+    let stride = bounds.w as usize * 2;
+    let mut pixels = vec![0; stride * bounds.h as usize];
+    for tile in frame.tiles {
+        let alpha = (tile.opacity(frame.progress) * 255.0).round() as u8;
+        let x = (tile.rect.x - bounds.x) as usize * 2;
+        let y = (tile.rect.y - bounds.y) as usize;
+        for row in y..y + tile.rect.h as usize {
+            let start = row * stride + x;
+            let end = start + tile.rect.w as usize * 2;
+            for pixel in pixels[start..end].as_chunks_mut::<2>().0 {
+                pixel[1] = alpha;
+            }
+        }
+    }
+    let provider = CGDataProvider::with_cf_data(Some(&CFData::from_bytes(&pixels)))
+        .context("create backdrop mask data provider")?;
+    let space = CGColorSpace::new_device_gray().context("create gray color space")?;
+    let image = unsafe {
+        CGImage::new(
+            bounds.w as usize,
+            bounds.h as usize,
+            8,
+            16,
+            stride,
+            Some(&space),
+            CGBitmapInfo(CGImageAlphaInfo::PremultipliedLast.0),
+            Some(&provider),
+            ptr::null(),
+            false,
+            CGColorRenderingIntent::RenderingIntentDefault,
+        )
+    }
+    .context("create backdrop mask image")?;
+    Ok(NSImage::initWithCGImage_size(
+        NSImage::alloc(),
+        &image,
+        NSSize::new(f64::from(bounds.w), f64::from(bounds.h)),
+    ))
 }
 
 fn make_image(size: Size, pixels: &[u8]) -> Result<CFRetained<CGImage>> {

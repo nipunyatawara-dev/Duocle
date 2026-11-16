@@ -342,7 +342,8 @@ pub fn plan(desktop: &Desktop, settings: &Settings) -> Vec<(u64, Mask)> {
         .displays
         .iter()
         .filter_map(|display| {
-            let bounds = if settings.dim_chrome {
+            // On macOS the overlay can fill the display beneath the menu bar and Dock.
+            let bounds = if cfg!(target_os = "macos") || settings.dim_chrome {
                 display.bounds
             } else {
                 display.work
@@ -592,6 +593,27 @@ mod tests {
             foreground_app: Some("one".into()),
             ..Desktop::default()
         }
+    }
+
+    #[test]
+    fn overlay_bounds_account_for_system_bars() {
+        let mut desktop = desktop();
+        desktop.displays[0].work = Rect::new(0, 10, 100, 80);
+        let display = &desktop.displays[0];
+        let mut settings = Settings::default();
+
+        let masks = plan(&desktop, &settings);
+        let mask = &masks[0].1;
+        if cfg!(target_os = "macos") {
+            assert_eq!(mask.bounds, display.bounds);
+            assert!(!mask.clear.iter().any(|rect| rect.contains(50, 5)));
+            assert!(mask.clear.iter().any(|rect| rect.contains(50, 50)));
+        } else {
+            assert_eq!(mask.bounds, display.work);
+        }
+
+        settings.dim_chrome = true;
+        assert_eq!(plan(&desktop, &settings)[0].1.bounds, display.bounds);
     }
 
     #[test]

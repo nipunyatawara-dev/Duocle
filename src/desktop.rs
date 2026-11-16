@@ -629,6 +629,13 @@ impl App {
             }
             return Err(error.context("Could not save Duocle settings"));
         }
+        #[cfg(target_os = "macos")]
+        if updated.dim_chrome != self.settings.dim_chrome {
+            self.capture_generation += 1;
+            for screen in self.monitors.values_mut() {
+                screen.fresh_image |= screen.image.take().is_some();
+            }
+        }
         self.settings = updated;
         self.notice = None;
         self.revision += 1;
@@ -652,6 +659,9 @@ impl App {
                 "Duocle · Focus off"
             }));
             if let Ok(icon) = tray_image(self.settings.enabled) {
+                #[cfg(target_os = "macos")]
+                let _ = tray.icon.set_icon_with_as_template(Some(icon), true);
+                #[cfg(target_os = "windows")]
                 let _ = tray.icon.set_icon(Some(icon));
             }
         }
@@ -905,6 +915,8 @@ impl App {
                         display,
                         size: Size::for_mask(mask),
                         bounds: mask.bounds,
+                        #[cfg(target_os = "macos")]
+                        chrome: self.settings.dim_chrome,
                     })
                 })
                 .collect();
@@ -1021,15 +1033,8 @@ impl App {
                 repaint || blending
             };
             #[cfg(target_os = "macos")]
-            let native_blur = if image.is_none() && self.settings.blur > 0 {
-                let mode_alpha = if self.settings.mode == Mode::Ambient {
-                    0.54
-                } else {
-                    1.0
-                };
-                let reveal_alpha = if cursor_reveal { opacity } else { 1.0 };
-                let intensity = f32::from(self.settings.blur) / 100.0;
-                (1.0 - (1.0 - intensity).powi(3)) * mode_alpha * reveal_alpha
+            let native_blur_radius = if image.is_none() {
+                effect::mac_blur_radius(&self.settings)
             } else {
                 0.0
             };
@@ -1054,7 +1059,9 @@ impl App {
                 pixels: pixels_changed.then_some(&screen.texture),
                 opacity: if cursor_reveal { 1.0 } else { opacity },
                 #[cfg(target_os = "macos")]
-                native_blur,
+                native_blur_radius,
+                #[cfg(target_os = "macos")]
+                native_blur_opacity: if cursor_reveal { opacity } else { 1.0 },
                 #[cfg(target_os = "macos")]
                 chrome: self.settings.dim_chrome,
             };
