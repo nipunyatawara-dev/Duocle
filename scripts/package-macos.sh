@@ -3,8 +3,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 export MACOSX_DEPLOYMENT_TARGET=14.6
-mkdir -p dist
-stage="$(mktemp -d "$PWD/dist/.macos.XXXXXX")"
+out_dir="${DUOCLE_DIST_DIR:-$PWD/dist}"
+mkdir -p "$out_dir"
+stage="$(mktemp -d "$out_dir/.macos.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 app="$stage/Duocle.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/Licenses"
@@ -39,8 +40,8 @@ plutil -lint "$app/Contents/Info.plist"
 codesign --force --sign "${DUOCLE_SIGN_IDENTITY:--}" --options runtime "$app"
 codesign --verify --strict "$app"
 ditto -c -k --norsrc --keepParent "$app" "$stage/Duocle-macos-$arch.zip"
-if [[ -d dist/Duocle.app ]]; then
-  rm -rf dist/Duocle.app
+if [[ -d "$out_dir/Duocle.app" ]]; then
+  rm -rf "$out_dir/Duocle.app"
 fi
-mv "$app" dist/Duocle.app
-mv "$stage/Duocle-macos-$arch.zip" "dist/Duocle-macos-$arch.zip"
+mv "$app" "$out_dir/Duocle.app"
+mv "$stage/Duocle-macos-$arch.zip" "$out_dir/Duocle-macos-$arch.zip"

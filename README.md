@@ -2,32 +2,39 @@
 
 # Duocle
 
-**Keep your active window clear and soften the rest of your desktop.**
+Keep your active window sharp while the rest of your desktop softens. Duocle runs in the macOS menu bar or the Windows system tray.
 
-Duocle is a desktop focus utility for macOS and Windows. It follows your foreground window as you switch apps and applies a customizable blur and tint around it. Find it in the macOS menu bar or the Windows system tray.
+## Download Duocle 1.0 (3)
 
-[Install](#install) · [Using Duocle](#using-duocle) · [Build from source](#build-from-source)
-
-## Install
-
-Follow the [build instructions](#build-from-source) to create the package for your platform in `dist/`.
-
-| Platform | Setup |
+| Your computer | Download |
 | --- | --- |
-| macOS 14.6+ · Apple silicon and Intel | Extract `Duocle-macos-universal.zip`, move `Duocle.app` to Applications, and open it. |
-| Windows 11 · x64 | Run `Duocle-windows-x64-setup.exe`, then open Duocle from the Start menu. |
+| Mac with Apple silicon · macOS 14.6+ | [Apple silicon DMG](https://github.com/nipunyatawara-dev/Duocle/releases/download/v1.0.0/Duocle-macos-arm64.dmg) |
+| Mac with Intel · macOS 14.6+ | [Intel DMG](https://github.com/nipunyatawara-dev/Duocle/releases/download/v1.0.0/Duocle-macos-intel.dmg) |
+| Windows 11 · x64 | [Windows installer](https://github.com/nipunyatawara-dev/Duocle/releases/download/v1.0.0/Duocle-windows-x64-setup.exe) |
 
-By default, the macOS build is ad hoc signed and unnotarized. The Windows installer is unsigned and uses the Microsoft Edge WebView2 Evergreen Runtime. If the installer says the runtime is missing, install it and rerun setup. [Microsoft WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)
+### Install on macOS
 
-## Using Duocle
+1. Open the DMG and drag **Duocle** into **Applications**.
+2. Open Duocle from Applications, then click its menu bar icon.
 
-Focus is enabled by default. Left-click the Duocle icon to open the menu, where you can toggle focus, switch modes, ignore the active app, or peek. Choose **Duocle settings…** to open the settings window or **Quit Duocle** to exit.
+The Mac app is ad hoc signed and unnotarized. [Apple’s guidance on opening downloaded apps](https://support.apple.com/en-us/102445)
 
-The blur follows a window while it moves. It clears in macOS Mission Control and Windows Task View and resumes when you return to the desktop.
+### Install on Windows
 
-- **Focus** — Use **Deep** to soften the background uniformly or **Ambient** for a gentler effect. Adjust blur, tint, and grain. For tint-only dimming, set blur, grain, and monochrome to zero. Choose **Per display** to keep a window clear on each display, or **Global** to follow the foreground window across displays.
-- **App rules** — Keep all windows from the active app clear, or group apps you use together. Ignored apps stay clear and pause the effect when they come to the foreground.
-- **Controls** — Shake the cursor horizontally to toggle focus. Hold Shift and shake to peek for at least two seconds. Keep Shift held to extend the peek. This page also lets you configure corner peek, shortcuts, transitions, and launch at login.
+1. Run the installer. On the final screen, choose whether to add Desktop and Start menu shortcuts.
+2. Open Duocle and click its icon in the system tray by the clock. Check the hidden icons arrow if needed.
+
+The installer is unsigned. Duocle uses the Microsoft Edge WebView2 Runtime for its settings window. Install the Evergreen Runtime if setup prompts for it. [Microsoft WebView2 download](https://developer.microsoft.com/microsoft-edge/webview2/#download-section)
+
+## Use Duocle
+
+Left-click the Duocle icon to toggle focus, switch modes, ignore the active app, or peek at the desktop. Choose **Duocle settings…** for more controls.
+
+- **Choose a blur.** Deep softens the background evenly. Ambient uses a gentler effect. Adjust blur, tint, and grain in **Focus**.
+- **Keep the right windows clear.** Use **App rules** to keep an app’s windows or a group of apps sharp. Ignored apps pause the blur when they come to the foreground.
+- **Work across displays.** Choose **Per display** to keep a window clear on each display, or **Global** to follow the active window across your desktop.
+- **Peek for a moment.** Shake the cursor horizontally to toggle focus. Hold Shift while you shake for a two-second peek. Keep holding Shift to extend it.
+- **Switch windows freely.** The blur follows focus and pauses in macOS Mission Control and Windows Task View. On macOS, click bare wallpaper to clear the blur and select a window to resume it.
 
 ### Default shortcuts
 
@@ -35,55 +42,58 @@ The blur follows a window while it moves. It clears in macOS Mission Control and
 | --- | --- | --- |
 | Toggle focus | Control + Option + Command + F | Ctrl + Alt + Shift + F |
 | Switch focus mode | Control + Option + Command + M | Ctrl + Alt + Shift + M |
-| Toggle the foreground app's ignore rule | Control + Option + Command + E | Ctrl + Alt + Shift + E |
+| Toggle the active app’s ignore rule | Control + Option + Command + E | Ctrl + Alt + Shift + E |
 | Toggle settings | Control + Option + Command + C | Ctrl + Alt + Shift + C |
+
+Change shortcuts, peek gestures, transitions, or launch at login in **Controls**.
 
 ## Screen access
 
-On macOS, standard blur uses AppKit's compositor and works without Screen Recording or Accessibility access. Enable **Precise effects** and grant Screen Recording permission to use pixel-based blur and monochrome.
+- **macOS** — Standard blur runs in AppKit without Screen Recording or Accessibility permission. Screen Recording is required for the optional **Precise effects** setting, which adds pixel-based blur and monochrome.
+- **Windows** — Blur and monochrome use local desktop frames. Protected surfaces and some layered windows may render differently in the overlay.
 
-Windows uses Win32 GDI desktop frames for blur and monochrome. Layered windows and protected hardware surfaces can appear incomplete in those frames. Duocle processes captured frames locally in memory without saving or transmitting them.
+Duocle processes captured frames in memory and saves or sends none of them.
 
 ## Automation
 
-Start the desktop app before sending CLI commands. Use `/Applications/Duocle.app/Contents/MacOS/duocle` on macOS or `Duocle.exe` from the Windows installation folder. Replace `duocle` below with that path if the executable is outside your shell's path. In PowerShell scripts that need to wait for the Windows executable, use `Start-Process -NoNewWindow -Wait`.
+Start the desktop app before sending commands. On macOS, use `/Applications/Duocle.app/Contents/MacOS/duocle`. On Windows, use `Duocle.exe` from the installation folder. In a PowerShell script, use `Start-Process -NoNewWindow -Wait` when you need to wait for the Windows executable.
 
 ```sh
 duocle status
 duocle toggle
 duocle mode ambient
 duocle set blur 70
-duocle set app_wide true
 duocle peek
 duocle --help
 ```
 
-The installed app also handles URLs such as `duocle://toggle`, `duocle://peek`, `duocle://mode?value=ambient`, and `duocle://tint?value=%23233550`. Encode a leading `#` in a tint as `%23`.
+The installed app also accepts URLs such as `duocle://toggle`, `duocle://peek`, and `duocle://mode?value=ambient`.
 
 ## Build from source
 
-Use stable Rust 1.90 or newer. On a supported OS, run `cargo run --locked` to start Duocle and `cargo test --locked` to run its tests.
+Use stable Rust 1.90 or newer. Run `cargo run --locked` to start Duocle and `cargo test --locked` to run its tests.
 
-**macOS** requires the Xcode Command Line Tools. The script produces `dist/Duocle-macos-universal.zip`. Set `DUOCLE_SIGN_IDENTITY` to use a Developer ID certificate for signing.
+**macOS.** Install the Xcode Command Line Tools and put `dmgbuild` on your PATH. Build either DMG in `dist/`. [dmgbuild installation](https://dmgbuild.readthedocs.io/en/latest/)
 
 ```sh
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-./scripts/package-macos.sh
+./scripts/package-macos-dmg.sh aarch64
+./scripts/package-macos-dmg.sh x86_64
 ```
 
-**Windows** requires the Visual Studio C++ Build Tools, the Windows SDK, and NSIS on your path. The script produces `dist/Duocle-windows-x64-setup.exe`.
+Run `./scripts/package-macos.sh` for a universal ZIP. Set `DUOCLE_SIGN_IDENTITY` to sign the app with a Developer ID certificate.
+
+**Windows.** Install the Visual Studio C++ Build Tools and Windows SDK, then put NSIS on your PATH.
 
 ```powershell
 rustup target add x86_64-pc-windows-msvc
 .\scripts\package-windows.ps1
 ```
 
-To cross-package the Windows installer from macOS, install Homebrew's `mingw-w64` and `makensis` formulae, add the `x86_64-pc-windows-gnu` Rust target, then run `./scripts/package-windows-cross.sh`.
+To build the same x64 installer on macOS, install the Homebrew `mingw-w64` and `makensis` formulae, add the `x86_64-pc-windows-gnu` Rust target, and run `./scripts/package-windows-cross.sh`.
 
-## Credits
+## Feedback and credits
 
-Duocle was developed independently, with Monocle 3.5.1 as a reference for focus behavior. Its settings use Material Design 3, with Roboto and Material Symbols bundled locally. [Monocle changelog](https://trymonocle.app/changelog) · [Bundled font licenses](ui/fonts/)
+Include your Duocle version, OS version, and display setup in bug reports. [GitHub Issues](https://github.com/nipunyatawara-dev/Duocle/issues)
 
-## Feedback
-
-Include your OS version and display setup when reporting a bug. [GitHub Issues](https://github.com/nipunyatawara-dev/Duocle/issues)
+Duocle was built independently with Monocle as a reference for focus behavior. It uses Material Design 3, Roboto, and Material Symbols. [Monocle changelog](https://trymonocle.app/changelog) · [Bundled font licenses](ui/fonts/)

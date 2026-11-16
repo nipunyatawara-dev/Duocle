@@ -1,6 +1,7 @@
 Unicode true
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
+!include "nsDialogs.nsh"
 !include "x64.nsh"
 
 !ifndef DUOCLE_EXE
@@ -13,6 +14,13 @@ Unicode true
 !define WEBVIEW2_CLIENT "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 
 Name "Duocle"
+Caption "Duocle 1.0 (3) Setup"
+VIProductVersion "1.0.0.3"
+VIAddVersionKey /LANG=1033 "ProductName" "Duocle"
+VIAddVersionKey /LANG=1033 "ProductVersion" "1.0 (3)"
+VIAddVersionKey /LANG=1033 "FileDescription" "Duocle installer"
+VIAddVersionKey /LANG=1033 "FileVersion" "1.0.0.3"
+VIAddVersionKey /LANG=1033 "LegalCopyright" "Copyright (c) 2026 Nipun Yatawara"
 OutFile "${OUTPUT_EXE}"
 InstallDir "$LOCALAPPDATA\Programs\Duocle"
 InstallDirRegKey HKCU "Software\Duocle" "InstallDir"
@@ -24,11 +32,15 @@ SetCompressor /SOLID lzma
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_FINISHPAGE_RUN "$INSTDIR\Duocle.exe"
-!insertmacro MUI_PAGE_FINISH
+Page custom FinishPage FinishPageLeave
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
+
+Var HadInstall
+Var DesktopShortcut
+Var StartMenuShortcut
+Var OpenDuocle
 
 Function .onInit
   ${IfNot} ${RunningX64}
@@ -49,11 +61,67 @@ Function .onInit
   ${EndIf}
 FunctionEnd
 
+Function FinishPage
+  !insertmacro MUI_HEADER_TEXT "Duocle is ready" "Choose your shortcuts."
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateCheckbox} 12u 18u 90% 12u "Add a Desktop shortcut"
+  Pop $DesktopShortcut
+  ${If} ${FileExists} "$DESKTOP\Duocle.lnk"
+    ${NSD_Check} $DesktopShortcut
+  ${EndIf}
+
+  ${NSD_CreateCheckbox} 12u 39u 90% 12u "Add a Start menu shortcut"
+  Pop $StartMenuShortcut
+  ${If} $HadInstall == 0
+  ${OrIf} ${FileExists} "$SMPROGRAMS\Duocle.lnk"
+    ${NSD_Check} $StartMenuShortcut
+  ${EndIf}
+
+  ${NSD_CreateCheckbox} 12u 60u 90% 12u "Open Duocle"
+  Pop $OpenDuocle
+  ${NSD_Check} $OpenDuocle
+
+  GetDlgItem $0 $HWNDPARENT 1
+  ${NSD_SetText} $0 "Finish"
+  GetDlgItem $0 $HWNDPARENT 2
+  EnableWindow $0 0
+  nsDialogs::Show
+FunctionEnd
+
+Function FinishPageLeave
+  ${NSD_GetState} $DesktopShortcut $0
+  ${If} $0 == ${BST_CHECKED}
+    CreateShortcut "$DESKTOP\Duocle.lnk" "$INSTDIR\Duocle.exe"
+  ${Else}
+    Delete "$DESKTOP\Duocle.lnk"
+  ${EndIf}
+
+  ${NSD_GetState} $StartMenuShortcut $0
+  ${If} $0 == ${BST_CHECKED}
+    CreateShortcut "$SMPROGRAMS\Duocle.lnk" "$INSTDIR\Duocle.exe"
+  ${Else}
+    Delete "$SMPROGRAMS\Duocle.lnk"
+  ${EndIf}
+
+  ${NSD_GetState} $OpenDuocle $0
+  ${If} $0 == ${BST_CHECKED}
+    Exec '"$INSTDIR\Duocle.exe"'
+  ${EndIf}
+FunctionEnd
+
 Section "Duocle"
   SetShellVarContext current
-  IfFileExists "$INSTDIR\Duocle.exe" 0 +2
-  ExecWait '"$INSTDIR\Duocle.exe" quit'
-  Sleep 250
+  StrCpy $HadInstall 0
+  ${If} ${FileExists} "$INSTDIR\Duocle.exe"
+    StrCpy $HadInstall 1
+    ExecWait '"$INSTDIR\Duocle.exe" quit'
+    Sleep 250
+  ${EndIf}
   SetOutPath "$INSTDIR"
   File /oname=Duocle.exe "${DUOCLE_EXE}"
 !ifdef WEBVIEW2_LOADER
@@ -64,13 +132,16 @@ Section "Duocle"
   File "..\ui\fonts\OFL-Roboto.txt"
   SetOutPath "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$SMPROGRAMS\Duocle.lnk" "$INSTDIR\Duocle.exe"
+  ${If} ${Silent}
+  ${AndIf} $HadInstall == 0
+    CreateShortcut "$SMPROGRAMS\Duocle.lnk" "$INSTDIR\Duocle.exe"
+  ${EndIf}
   WriteRegStr HKCU "Software\Duocle" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Classes\duocle" "" "URL:Duocle"
   WriteRegStr HKCU "Software\Classes\duocle" "URL Protocol" ""
   WriteRegStr HKCU "Software\Classes\duocle\shell\open\command" "" '"$INSTDIR\Duocle.exe" "%1"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Duocle" "DisplayName" "Duocle"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Duocle" "DisplayVersion" "0.1.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Duocle" "DisplayVersion" "1.0 (3)"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Duocle" "DisplayIcon" "$INSTDIR\Duocle.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Duocle" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Duocle" "NoModify" 1
@@ -82,6 +153,7 @@ Section "Uninstall"
   IfFileExists "$INSTDIR\Duocle.exe" 0 +2
   ExecWait '"$INSTDIR\Duocle.exe" quit'
   Sleep 250
+  Delete "$DESKTOP\Duocle.lnk"
   Delete "$SMPROGRAMS\Duocle.lnk"
   Delete "$INSTDIR\Duocle.exe"
   Delete "$INSTDIR\WebView2Loader.dll"
