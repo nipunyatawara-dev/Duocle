@@ -1,0 +1,945 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'"
+    />
+    <title>Duocle</title>
+    <style>
+      /* DUOCLE_STYLE */
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside>
+        <div class="brand">
+          <span class="mark" aria-hidden="true"></span>Duocle
+        </div>
+        <nav aria-label="Settings">
+          <button class="md-destination" data-view="focus" aria-current="page">
+            <span class="md-indicator"
+              ><span class="material-symbol" aria-hidden="true"
+                >blur_on</span
+              ></span
+            >
+            <span>Focus</span>
+          </button>
+          <button class="md-destination" data-view="rules">
+            <span class="md-indicator"
+              ><span class="material-symbol" aria-hidden="true"
+                >group_work</span
+              ></span
+            >
+            <span>App rules</span>
+          </button>
+          <button class="md-destination" data-view="controls">
+            <span class="md-indicator"
+              ><span class="material-symbol" aria-hidden="true"
+                >keyboard</span
+              ></span
+            >
+            <span>Controls</span>
+          </button>
+        </nav>
+        <div class="rail-foot">
+          <button
+            class="icon-button"
+            type="button"
+            data-action="close"
+            aria-label="Close settings"
+            title="Close settings"
+          >
+            <span class="material-symbol" aria-hidden="true">close</span>
+          </button>
+          <small>0.1.0</small>
+        </div>
+      </aside>
+      <main>
+        <div id="notice" class="notice" role="status" hidden>
+          <span class="material-symbol" aria-hidden="true">warning</span
+          ><span id="notice-text"></span>
+        </div>
+        <section class="view" id="focus">
+          <div class="page-head">
+            <div>
+              <h1>Focus</h1>
+              <p class="lead">Keep the foreground clear.</p>
+            </div>
+            <button
+              class="md-button power"
+              type="button"
+              data-action="toggle"
+              aria-pressed="false"
+            >
+              <span class="material-symbol" aria-hidden="true"
+                >power_settings_new</span
+              ><span class="power-label">Focus off</span>
+            </button>
+          </div>
+          <div class="preview-card">
+            <div
+              class="preview"
+              id="preview"
+              role="img"
+              aria-label="Preview of a clear foreground window with a softened background"
+            >
+              <div class="filtered">
+                <div class="scenery"></div>
+                <div class="behind"><i></i><i></i><i></i><i></i><i></i></div>
+              </div>
+              <div class="preview-tint"></div>
+              <div class="example">
+                <div class="chrome">
+                  <span></span><span></span><span></span>
+                </div>
+                <div class="sample">
+                  <div class="side"></div>
+                  <div class="paper"><i></i><i></i><i></i><i></i></div>
+                </div>
+              </div>
+            </div>
+            <div class="preview-meta">
+              <div class="focus-status" role="status">
+                <span id="status-dot" class="dot" aria-hidden="true"></span>
+                <span id="status-text">Loading focus state…</span>
+              </div>
+              <button
+                class="md-button peek"
+                type="button"
+                data-action="peek"
+                aria-label="Peek for two seconds"
+              >
+                <span class="material-symbol" aria-hidden="true"
+                  >visibility</span
+                ><span class="button-label">Peek</span>
+              </button>
+            </div>
+          </div>
+          <div class="section">
+            <h2 class="section-heading">
+              <span class="material-symbol" aria-hidden="true">blur_on</span
+              ><span>Appearance</span>
+            </h2>
+            <div class="panel">
+              <div class="row">
+                <span class="label">Focus mode</span>
+                <div class="segment" aria-label="Focus mode">
+                  <button
+                    type="button"
+                    data-mode="ambient"
+                    aria-pressed="false"
+                  >
+                    <span class="material-symbol" aria-hidden="true">check</span
+                    ><span>Ambient</span></button
+                  ><button type="button" data-mode="deep" aria-pressed="true">
+                    <span class="material-symbol" aria-hidden="true">check</span
+                    ><span>Deep</span>
+                  </button>
+                </div>
+              </div>
+              <label class="row"
+                ><span class="label">Blur</span
+                ><span class="range"
+                  ><input
+                    type="range"
+                    data-key="blur"
+                    min="0"
+                    max="100" /><output
+                    aria-hidden="true"
+                    data-value="blur"
+                  ></output></span
+              ></label>
+              <div class="row">
+                <label class="label" for="tint-strength">Tint</label
+                ><span class="range"
+                  ><input
+                    type="color"
+                    data-key="tint"
+                    aria-label="Tint color" /><input
+                    id="tint-strength"
+                    type="range"
+                    data-key="tint_strength"
+                    min="0"
+                    max="100" /><output
+                    aria-hidden="true"
+                    data-value="tint_strength"
+                  ></output
+                ></span>
+              </div>
+              <label class="row"
+                ><span class="label">Grain</span
+                ><span class="range"
+                  ><input
+                    type="range"
+                    data-key="grain"
+                    min="0"
+                    max="100" /><output
+                    aria-hidden="true"
+                    data-value="grain"
+                  ></output></span
+              ></label>
+              <label class="row"
+                ><span class="label"
+                  >Monochrome<small id="mono-note" hidden
+                    >Uses optional screen capture on macOS.</small
+                  ></span
+                ><span class="range"
+                  ><input
+                    type="range"
+                    data-key="monochrome"
+                    min="0"
+                    max="100" /><output
+                    aria-hidden="true"
+                    data-value="monochrome"
+                  ></output></span
+              ></label>
+              <div class="row" id="precise-row" hidden>
+                <label class="label" for="precise"
+                  >Precise effects<small
+                    >Use screen capture for adjustable blur radius and
+                    monochrome.</small
+                  ></label
+                ><input
+                  class="switch"
+                  role="switch"
+                  id="precise"
+                  type="checkbox"
+                  data-key="precise_effects"
+                />
+              </div>
+              <div class="row" id="capture-row" hidden>
+                <span id="capture-text" class="hint"></span
+                ><button
+                  id="capture-button"
+                  type="button"
+                  data-action="capture"
+                >
+                  Open permission
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="section">
+            <h2 class="section-heading">
+              <span class="material-symbol" aria-hidden="true">devices</span
+              ><span>Displays</span>
+            </h2>
+            <div class="panel">
+              <label class="row"
+                ><span class="label"
+                  >Multi-display focus<small
+                    >Choose which display keeps a window clear.</small
+                  ></span
+                ><select data-key="displays">
+                  <option value="per_display">Per display</option>
+                  <option value="global">Global</option>
+                </select></label
+              >
+              <label class="row" id="stage-row" hidden
+                ><span class="label">Dim Stage Manager strip</span
+                ><input
+                  class="switch"
+                  role="switch"
+                  type="checkbox"
+                  data-key="cover_stage"
+              /></label>
+              <label class="row"
+                ><span class="label" id="chrome-label">Dim system bars</span
+                ><input
+                  class="switch"
+                  role="switch"
+                  type="checkbox"
+                  data-key="dim_chrome"
+              /></label>
+            </div>
+          </div>
+        </section>
+        <section class="view" id="rules" hidden>
+          <div class="page-head">
+            <div>
+              <h1>App rules</h1>
+              <p class="lead">Choose which windows share focus.</p>
+            </div>
+          </div>
+          <div class="panel">
+            <label class="row"
+              ><span class="label"
+                >App-wide focus<small
+                  >Keep every visible window of the active app clear.</small
+                ></span
+              ><input
+                class="switch"
+                role="switch"
+                type="checkbox"
+                data-key="app_wide"
+            /></label>
+          </div>
+          <div class="section">
+            <h2>Ignored apps</h2>
+            <div class="panel">
+              <form id="ignore-form" class="rule-form">
+                <select
+                  id="running-apps"
+                  aria-label="Running app to ignore"
+                ></select
+                ><button type="submit">
+                  <span class="material-symbol" aria-hidden="true">add</span>
+                  Add
+                </button>
+              </form>
+              <div id="ignore-list"></div>
+              <details>
+                <summary>Add by identifier</summary>
+                <form id="manual-ignore" class="rule-form">
+                  <input
+                    type="text"
+                    id="manual-id"
+                    placeholder="App identifier"
+                    required
+                    aria-label="App identifier"
+                  /><input
+                    type="text"
+                    id="manual-name"
+                    placeholder="Display name"
+                    aria-label="Display name"
+                  /><button type="submit">
+                    <span class="material-symbol" aria-hidden="true">add</span>
+                    Add
+                  </button>
+                </form>
+              </details>
+            </div>
+            <p class="hint">
+              Ignored windows stay clear. Switching to an ignored app pauses
+              focus.
+            </p>
+          </div>
+          <div class="section">
+            <h2>App groups</h2>
+            <div class="panel">
+              <div id="groups"></div>
+              <details id="group-editor">
+                <summary>Add app group</summary>
+                <form id="group-form">
+                  <div class="rule-form">
+                    <input
+                      id="group-name"
+                      type="text"
+                      autocomplete="off"
+                      placeholder="Group name"
+                      maxlength="70"
+                      required
+                      aria-label="Group name"
+                    /><button id="group-save" type="submit">
+                      Create group
+                    </button>
+                  </div>
+                  <div
+                    class="group-list"
+                    id="group-apps"
+                    aria-label="App group members"
+                  ></div>
+                  <p class="hint">Choose two or more apps.</p>
+                </form>
+              </details>
+            </div>
+            <p class="hint">
+              When you focus one app in a group, its companions stay clear.
+            </p>
+          </div>
+        </section>
+        <section class="view" id="controls" hidden>
+          <div class="page-head">
+            <div>
+              <h1>Controls</h1>
+              <p class="lead">Set how Duocle responds.</p>
+            </div>
+          </div>
+          <div class="section">
+            <h2>Gestures</h2>
+            <div class="panel">
+              <label class="row"
+                ><span class="label">Cursor shake</span
+                ><input
+                  class="switch"
+                  role="switch"
+                  type="checkbox"
+                  data-key="shake"
+              /></label>
+              <label class="row"
+                ><span class="label">Shake to toggle</span
+                ><select data-key="shake_toggle" data-modifiers></select
+              ></label>
+              <label class="row"
+                ><span class="label">Shake to peek</span
+                ><select data-key="shake_peek" data-modifiers></select
+              ></label>
+              <label class="row"
+                ><span class="label">Shake sensitivity</span
+                ><span class="range"
+                  ><input
+                    type="range"
+                    data-key="sensitivity"
+                    min="0"
+                    max="100" /><output
+                    aria-hidden="true"
+                    data-value="sensitivity"
+                  ></output></span
+              ></label>
+              <label class="row"
+                ><span class="label">Corner peek</span
+                ><select data-key="corner">
+                  <option value="off">Off</option>
+                  <option value="top_left">Top left</option>
+                  <option value="top_right">Top right</option>
+                  <option value="bottom_left">Bottom left</option>
+                  <option value="bottom_right">Bottom right</option>
+                </select></label
+              >
+              <label class="row"
+                ><span class="label">Pause while dragging</span
+                ><input
+                  class="switch"
+                  role="switch"
+                  type="checkbox"
+                  data-key="pause_dragging"
+              /></label>
+            </div>
+          </div>
+          <div class="section">
+            <h2 class="section-heading">
+              <span class="material-symbol" aria-hidden="true">keyboard</span
+              ><span>Global shortcuts</span>
+            </h2>
+            <div class="panel" id="shortcut-list"></div>
+            <p class="hint">
+              Select a shortcut and press its new keys. Press Esc to cancel.
+            </p>
+          </div>
+          <div class="section">
+            <h2>Behavior</h2>
+            <div class="panel">
+              <label class="row"
+                ><span class="label">Transition</span
+                ><span class="range"
+                  ><input
+                    type="range"
+                    data-key="transition"
+                    min="0"
+                    max="1000"
+                    step="10" /><output
+                    aria-hidden="true"
+                    data-value="transition"
+                  ></output></span
+              ></label>
+              <label class="row"
+                ><span class="label">Reveal effect</span
+                ><select data-key="reveal">
+                  <option value="fade">Fade</option>
+                  <option value="cursor">From cursor</option>
+                </select></label
+              >
+              <label class="row"
+                ><span class="label" id="tray-label"
+                  >Tray click toggles focus<small
+                    >Right-click for the settings menu.</small
+                  ></span
+                ><input
+                  class="switch"
+                  role="switch"
+                  type="checkbox"
+                  data-key="click_toggles"
+              /></label>
+              <label class="row"
+                ><span class="label">Launch at login</span
+                ><input id="login" class="switch" role="switch" type="checkbox"
+              /></label>
+              <div class="row">
+                <span class="label">Restore default settings</span
+                ><button id="reset" type="button">Reset</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <dialog
+      id="reset-confirmation"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="reset-title"
+      aria-describedby="reset-description"
+    >
+      <form method="dialog">
+        <h2 id="reset-title">Restore default settings?</h2>
+        <p id="reset-description">
+          This restores Duocle’s default appearance, app rules, gestures, and
+          shortcuts.
+        </p>
+        <div class="dialog-actions">
+          <button class="md-button text" value="cancel" autofocus>
+            Cancel
+          </button>
+          <button class="md-button filled" value="reset">
+            Restore defaults
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <script>
+      "use strict";
+      const q = (selector) => document.querySelector(selector);
+      const qa = (selector) => [...document.querySelectorAll(selector)];
+      let data = null,
+        editingGroup = null,
+        recording = null,
+        lastApps = "",
+        lastRules = "",
+        lastShortcuts = "";
+      const send = (action, payload = {}) =>
+        window.ipc &&
+        window.ipc.postMessage(JSON.stringify({ action, ...payload }));
+      const patch = (key, value) => send("patch", { key, value });
+      const node = (tag, text, className) => {
+        const el = document.createElement(tag);
+        if (text !== undefined) el.textContent = text;
+        if (className) el.className = className;
+        return el;
+      };
+
+      qa("nav button").forEach((button) =>
+        button.addEventListener("click", () => {
+          qa("nav button").forEach((item) => {
+            const selected = item === button;
+            selected
+              ? item.setAttribute("aria-current", "page")
+              : item.removeAttribute("aria-current");
+          });
+          qa(".view").forEach(
+            (view) => (view.hidden = view.id !== button.dataset.view),
+          );
+          q("main").scrollTop = 0;
+        }),
+      );
+      qa("[data-action]").forEach((button) =>
+        button.addEventListener("click", () => send(button.dataset.action)),
+      );
+      qa("[data-mode]").forEach((button) =>
+        button.addEventListener("click", () =>
+          send("mode", { value: button.dataset.mode }),
+        ),
+      );
+      qa("[data-modifiers]").forEach((select) => {
+        for (const [value, label] of Object.entries({
+          off: "Off",
+          none: "No modifier",
+          shift: "Shift",
+          control: "Control",
+          alt: "Alt / Option",
+          super: "Win / Command",
+        })) {
+          select.add(new Option(label, value));
+        }
+      });
+      qa("[data-key]").forEach((input) => {
+        input.addEventListener("change", () => {
+          const value =
+            input.type === "range"
+              ? Number(input.value)
+              : input.type === "checkbox"
+                ? input.checked
+                : input.value;
+          patch(input.dataset.key, value);
+        });
+        if (input.type === "range" || input.type === "color") {
+          input.addEventListener("input", () => {
+            setOutput(input.dataset.key, input.value);
+            drawPreview();
+          });
+        }
+      });
+      q("#login").addEventListener("change", (event) =>
+        send("login", { value: event.target.checked }),
+      );
+      const resetDialog = q("#reset-confirmation");
+      q("#reset").addEventListener("click", () => {
+        resetDialog.returnValue = "cancel";
+        resetDialog.showModal();
+      });
+      resetDialog.addEventListener("close", () => {
+        if (resetDialog.returnValue === "reset") send("reset");
+      });
+
+      function setOutput(key, value) {
+        const target = q('[data-value="' + key + '"]');
+        if (!target) return;
+        target.value = value + (key === "transition" ? " ms" : "%");
+        const input = q('[data-key="' + key + '"]');
+        const min = Number(input.min);
+        const max = Number(input.max);
+        const fraction = (Number(value) - min) / (max - min);
+        input.style.setProperty("--range-progress", fraction * 100 + "%");
+      }
+      function drawPreview() {
+        const preview = q("#preview");
+        const value = (key) => q('[data-key="' + key + '"]').value;
+        const ambient = data && data.settings.mode === "ambient";
+        preview.style.setProperty(
+          "--radius",
+          Number(value("blur")) / (ambient ? 17 : 9) + "px",
+        );
+        preview.style.setProperty("--gray", Number(value("monochrome")) / 100);
+        preview.style.setProperty("--tint", value("tint"));
+        preview.style.setProperty(
+          "--tint-opacity",
+          Number(value("tint_strength")) / (ambient ? 155 : 100),
+        );
+        preview.style.setProperty("--background-light", ambient ? ".99" : ".9");
+      }
+
+      const shortcuts = {
+        toggle: "Toggle focus",
+        mode: "Switch mode",
+        ignore: "Ignore front app",
+        settings: "Toggle settings",
+        peek: "Peek",
+      };
+      for (const [id, label] of Object.entries(shortcuts)) {
+        const row = node("div", undefined, "row");
+        const bits = node("div", undefined, "rule-actions");
+        const bind = node("button", "Unassigned", "kbd");
+        bind.dataset.shortcut = id;
+        bind.setAttribute(
+          "aria-label",
+          "Change " + label.toLowerCase() + " shortcut",
+        );
+        bind.addEventListener("click", () => {
+          recording = id;
+          bind.textContent = "Press keys…";
+        });
+        bind.addEventListener("blur", () => {
+          if (recording === id) stopRecording();
+        });
+        const clear = node("button", undefined, "icon-button");
+        const clearIcon = node("span", "delete", "material-symbol");
+        clearIcon.setAttribute("aria-hidden", "true");
+        clear.append(clearIcon);
+        clear.setAttribute(
+          "aria-label",
+          "Clear " + label.toLowerCase() + " shortcut",
+        );
+        clear.addEventListener("click", () => {
+          stopRecording();
+          saveShortcut(id, "");
+        });
+        const labelNode = node("span", label, "label");
+        bits.append(bind, clear);
+        row.append(labelNode, bits);
+        q("#shortcut-list").append(row);
+      }
+      function saveShortcut(id, value) {
+        if (data)
+          patch("shortcuts", { ...data.settings.shortcuts, [id]: value });
+      }
+      function stopRecording() {
+        recording = null;
+        updateShortcuts();
+      }
+      function updateShortcuts() {
+        if (!data) return;
+        qa("[data-shortcut]").forEach((button) => {
+          if (recording !== button.dataset.shortcut) {
+            button.textContent =
+              data.settings.shortcuts[button.dataset.shortcut] || "Unassigned";
+          }
+        });
+      }
+      document.addEventListener(
+        "keydown",
+        (event) => {
+          if (resetDialog.open) return;
+          if (!recording) {
+            if (
+              event.key === "Escape" ||
+              (event.metaKey && event.key.toLowerCase() === "w")
+            )
+              send("close");
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === "Escape") return stopRecording();
+          const mods = [
+            event.ctrlKey && "Ctrl",
+            event.altKey && "Alt",
+            event.shiftKey && "Shift",
+            event.metaKey && "Super",
+          ].filter(Boolean);
+          const code = event.code;
+          const key = /^(Key[A-Z]|Digit[0-9])$/.test(code)
+            ? code.replace(/^(Key|Digit)/, "")
+            : /^(F[1-9]|F1[0-9]|F2[0-4]|Space|Enter|Backspace|Delete|Home|End|PageUp|PageDown|Arrow(Up|Down|Left|Right)|Minus|Equal|Comma|Period|Slash|Semicolon|Quote|Backquote|BracketLeft|BracketRight|Backslash)$/.test(
+                  code,
+                )
+              ? code
+              : null;
+          if (key && mods.length) {
+            const id = recording;
+            stopRecording();
+            saveShortcut(id, [...mods, key].join("+"));
+          }
+        },
+        true,
+      );
+
+      function addIgnored(app) {
+        if (
+          !app ||
+          !data ||
+          data.settings.ignored.some((item) => item.id === app.id)
+        )
+          return;
+        patch("ignored", [...data.settings.ignored, app]);
+      }
+      q("#ignore-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        addIgnored(
+          data?.apps.find((app) => app.id === q("#running-apps").value),
+        );
+      });
+      q("#manual-ignore").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const raw = q("#manual-id").value.trim();
+        const id = data?.platform === "windows" ? raw.toLowerCase() : raw;
+        if (id) addIgnored({ id, name: q("#manual-name").value.trim() || id });
+        event.target.reset();
+      });
+      function updateApps() {
+        const select = q("#running-apps");
+        const selected = select.value;
+        const choices = data.apps.filter(
+          (app) =>
+            !data.settings.ignored.some((ignored) => ignored.id === app.id),
+        );
+        select.replaceChildren(
+          new Option(
+            choices.length ? "Choose a running app" : "No available apps",
+            "",
+          ),
+        );
+        for (const app of choices) select.add(new Option(app.name, app.id));
+        if (choices.some((app) => app.id === selected)) select.value = selected;
+        const container = q("#group-apps");
+        const selection = new Set(
+          [...container.querySelectorAll("input:checked")].map(
+            (input) => input.value,
+          ),
+        );
+        for (const app of data.settings.groups[editingGroup]?.apps || []) {
+          if (!container.querySelector("input")) selection.add(app.id);
+        }
+        const catalog = new Map(data.apps.map((app) => [app.id, app]));
+        for (const group of data.settings.groups) {
+          for (const app of group.apps) catalog.set(app.id, app);
+        }
+        const options = [...catalog.values()].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        );
+        container.replaceChildren();
+        for (const app of options) {
+          const label = node("label");
+          const input = node("input");
+          input.type = "checkbox";
+          input.value = app.id;
+          input.checked = selection.has(app.id);
+          input.app = app;
+          label.append(input, node("span", app.name));
+          container.append(label);
+        }
+        if (!options.length)
+          container.append(
+            node("p", "Open the apps you’d like to group.", "hint"),
+          );
+      }
+      function clearGroupEditor() {
+        editingGroup = null;
+        q("#group-name").value = "";
+        q("#group-apps").replaceChildren();
+        q("#group-editor summary").textContent = "Add app group";
+        q("#group-save").textContent = "Create group";
+        updateApps();
+      }
+      q("#group-editor").addEventListener("toggle", () => {
+        if (!q("#group-editor").open && data) clearGroupEditor();
+      });
+      q("#group-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const name = q("#group-name").value.trim();
+        const apps = [
+          ...q("#group-apps").querySelectorAll("input:checked"),
+        ].map((input) => input.app);
+        if (!name || apps.length < 2) {
+          q("#group-name").setCustomValidity(
+            "Enter a group name and select two or more apps.",
+          );
+          q("#group-name").reportValidity();
+          q("#group-name").setCustomValidity("");
+          return;
+        }
+        const groups = [...data.settings.groups];
+        if (editingGroup === null) groups.push({ name, apps });
+        else groups[editingGroup] = { name, apps };
+        patch("groups", groups);
+        q("#group-editor").open = false;
+      });
+      function ruleRow(name, detail) {
+        const row = node("div", undefined, "row");
+        const title = node("div", undefined, "rule-name");
+        const actions = node("div", undefined, "rule-actions");
+        title.append(node("h3", name));
+        if (detail) title.append(node("p", detail));
+        row.append(title, actions);
+        return { row, actions };
+      }
+      function ruleButton(label, accessibleLabel, fn) {
+        const button = node("button", label);
+        button.setAttribute("aria-label", accessibleLabel);
+        button.addEventListener("click", fn);
+        return button;
+      }
+      function updateRules() {
+        const ignored = q("#ignore-list");
+        const groups = q("#groups");
+        ignored.replaceChildren();
+        groups.replaceChildren();
+        if (!data.settings.ignored.length)
+          ignored.append(node("p", "No ignored apps.", "rules-empty"));
+        if (!data.settings.groups.length)
+          groups.append(node("p", "No app groups yet.", "rules-empty"));
+        for (const app of data.settings.ignored) {
+          const { row, actions } = ruleRow(
+            app.name,
+            app.id === app.name ? "" : app.id,
+          );
+          actions.append(
+            ruleButton("Remove", "Stop ignoring " + app.name, () =>
+              patch(
+                "ignored",
+                data.settings.ignored.filter((item) => item.id !== app.id),
+              ),
+            ),
+          );
+          ignored.append(row);
+        }
+        data.settings.groups.forEach((group, index) => {
+          const { row, actions } = ruleRow(
+            group.name,
+            group.apps.map((app) => app.name).join(", "),
+          );
+          actions.append(
+            ruleButton("Edit", "Edit " + group.name, () => {
+              editingGroup = index;
+              q("#group-apps").replaceChildren();
+              q("#group-name").value = group.name;
+              q("#group-editor summary").textContent = "Edit " + group.name;
+              q("#group-save").textContent = "Save group";
+              updateApps();
+              q("#group-editor").open = true;
+              q("#group-name").focus();
+            }),
+            ruleButton("Remove", "Remove " + group.name, () =>
+              patch(
+                "groups",
+                data.settings.groups.filter((_, current) => current !== index),
+              ),
+            ),
+          );
+          groups.append(row);
+        });
+      }
+      window.duocleState = (next) => {
+        data = next;
+        const settings = data.settings;
+        const mac = data.platform === "macos";
+        q("#notice").hidden = !data.notice;
+        q("#notice-text").textContent = data.notice || "";
+        const on = settings.enabled;
+        const ignored = settings.ignored.some(
+          (app) => app.id === data.foreground,
+        );
+        const foreground = data.foreground_name;
+        q(".power").setAttribute("aria-pressed", on);
+        q(".power-label").textContent = on ? "Focus on" : "Focus off";
+        q(".peek").disabled = !on;
+        q("#status-dot").classList.toggle(
+          "on",
+          on && !data.paused && !ignored && !!foreground,
+        );
+        q("#status-text").textContent = !on
+          ? "Overlay disabled"
+          : data.paused
+            ? "Temporarily paused"
+            : ignored
+              ? "Paused for " + (foreground || "ignored app")
+              : foreground
+                ? "Focused on " + foreground
+                : "Waiting for a window";
+        qa("[data-mode]").forEach((button) =>
+          button.setAttribute(
+            "aria-pressed",
+            button.dataset.mode === settings.mode,
+          ),
+        );
+        qa("[data-key]").forEach((input) => {
+          const value = settings[input.dataset.key];
+          if (input.type === "checkbox") input.checked = value;
+          else if (
+            document.activeElement !== input ||
+            input.type === "select-one"
+          )
+            input.value = value;
+          setOutput(input.dataset.key, input.value);
+        });
+        q("#login").checked = data.login;
+        q("#mono-note").hidden =
+          !mac || (settings.precise_effects && data.capture_allowed);
+        q('[data-key="monochrome"]').disabled =
+          mac && !(settings.precise_effects && data.capture_allowed);
+        q("#precise-row").hidden = !mac;
+        q("#capture-row").hidden = !mac || !settings.precise_effects;
+        q("#capture-button").hidden = data.capture_allowed;
+        q("#capture-text").textContent = data.capture_allowed
+          ? "Precise effects enabled."
+          : "Permission is needed only for precise effects. Standard blur remains available.";
+        q("#stage-row").hidden = !mac;
+        q("#chrome-label").textContent = mac
+          ? "Dim menu bar and Dock"
+          : "Dim taskbar";
+        drawPreview();
+        const appsKey = JSON.stringify([
+          data.apps,
+          settings.ignored,
+          settings.groups,
+        ]);
+        if (lastApps !== appsKey) {
+          lastApps = appsKey;
+          updateApps();
+        }
+        const rulesKey = JSON.stringify([settings.ignored, settings.groups]);
+        if (lastRules !== rulesKey) {
+          lastRules = rulesKey;
+          updateRules();
+        }
+        const shortcutsKey = JSON.stringify(settings.shortcuts);
+        if (lastShortcuts !== shortcutsKey) {
+          lastShortcuts = shortcutsKey;
+          updateShortcuts();
+        }
+      };
+      send("ready");
+    </script>
+  </body>
+</html>
