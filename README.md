@@ -4,6 +4,8 @@
 
 Keep your active window sharp while the rest of your desktop softens. Duocle runs in the macOS menu bar or the Windows system tray.
 
+![Duocle Focus window in the foreground while the desktop behind it is blurred](assets/duocle-focus.png)
+
 ## Download Duocle 1.0 (3)
 
 | Your computer | Download |
